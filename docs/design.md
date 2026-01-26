@@ -446,5 +446,3 @@ The write loop in `append()` retries short writes until the full record is flush
 > **The WAL file is never modified during replay. Replay is a pure read-only operation.**
 
 This ensures that replay is safe to retry after a crash during recovery, and that the WAL remains a trustworthy source of truth.
-
-<!-- WIP id: 5217 -->
