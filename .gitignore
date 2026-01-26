@@ -1,0 +1,6 @@
+*.exe
+*.o
+*.obj
+stdb
+test_wal.bin
+output.txt
