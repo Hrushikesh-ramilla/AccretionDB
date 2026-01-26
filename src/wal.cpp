@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 4828)
 #include "wal.h"
 #include "crc32.h"
 
@@ -135,3 +134,5 @@ std::vector<WALEntry> WAL::replay() const {
     wal_close(rfd);
     return entries;
 }
+
+// partial state 2438
