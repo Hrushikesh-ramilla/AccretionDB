@@ -447,4 +447,4 @@ The write loop in `append()` retries short writes until the full record is flush
 
 This ensures that replay is safe to retry after a crash during recovery, and that the WAL remains a trustworthy source of truth.
 
-<!-- WIP id: 2867 -->
+<!-- WIP id: 5217 -->

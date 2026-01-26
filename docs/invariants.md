@@ -44,4 +44,4 @@ A record is either fully written to the WAL or not written at all. No partial re
 
 The WAL file is never modified during replay. Replay is a pure read-only operation, safe to retry after a crash during recovery.
 
-<!-- WIP id: 8169 -->
+<!-- WIP id: 8835 -->
