@@ -35,5 +35,3 @@ uint32_t record_checksum(uint32_t key_size, uint32_t value_size,
     std::memcpy(buf.data() + off, value.data(), value.size());
     return compute_crc32(buf.data(), buf.size());
 }
-
-// partial state 6757

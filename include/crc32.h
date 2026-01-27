@@ -14,5 +14,3 @@ uint32_t record_checksum(uint32_t key_size, uint32_t value_size,
                          const std::string& key, const std::string& value);
 
 #endif // STDB_CRC32_H
-
-// partial state 7268
