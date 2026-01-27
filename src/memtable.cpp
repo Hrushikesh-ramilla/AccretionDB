@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 4692)
 #include "memtable.h"
 
 void Memtable::put(const std::string& key, const std::string& value) {
