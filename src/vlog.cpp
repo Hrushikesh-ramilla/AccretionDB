@@ -141,5 +141,3 @@ bool VLog::read_at(const VLogPointer& pointer, std::string& out_value) const {
 
     return true;
 }
-
-// partial state 8308

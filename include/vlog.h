@@ -42,5 +42,3 @@ private:
 };
 
 #endif // STDB_VLOG_H
-
-// partial state 7574
