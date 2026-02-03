@@ -14,5 +14,3 @@ bool Memtable::get(const std::string& key, std::string& out_value) const {
 size_t Memtable::size() const {
     return table_.size();
 }
-
-// partial state 5028
