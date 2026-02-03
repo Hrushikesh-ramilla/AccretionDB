@@ -1,3 +1,4 @@
+// WIP: Need to trace edge cases here (id: 9720)
 #include "memtable.h"
 
 void Memtable::put(const std::string& key, const std::string& value) {
@@ -14,5 +15,3 @@ bool Memtable::get(const std::string& key, std::string& out_value) const {
 size_t Memtable::size() const {
     return table_.size();
 }
-
-// partial state 2718
