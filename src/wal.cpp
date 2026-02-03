@@ -134,5 +134,3 @@ std::vector<WALEntry> WAL::replay() const {
     wal_close(rfd);
     return entries;
 }
-
-// partial state 2438
