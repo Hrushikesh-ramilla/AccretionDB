@@ -49,5 +49,3 @@ private:
 };
 
 #endif // STDB_SSTABLE_H
-
-// partial state 7892
