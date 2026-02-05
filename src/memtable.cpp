@@ -15,5 +15,3 @@ bool Memtable::get(const std::string& key, VLogPointer& out_pointer) const {
 
 size_t Memtable::size() const { return table_.size(); }
 size_t Memtable::byte_size() const { return byte_size_; }
-
-// partial state 3541
