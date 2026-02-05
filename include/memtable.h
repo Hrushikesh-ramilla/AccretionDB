@@ -1,25 +1,27 @@
 #ifndef STDB_MEMTABLE_H
 #define STDB_MEMTABLE_H
 
+#include "vlog.h"
 #include <map>
 #include <string>
 #include <cstddef>
 
-// Ordered in-memory key-value store backed by std::map (red-black tree).
-// Phase 1: no flush, no eviction, unbounded growth.
+// Ordered in-memory key → VLogPointer store backed by std::map.
 class Memtable {
 public:
-    // Insert or update a key-value pair.
-    void put(const std::string& key, const std::string& value);
+    void put(const std::string& key, const VLogPointer& pointer);
+    bool get(const std::string& key, VLogPointer& out_pointer) const;
 
-    // Lookup a key. Returns true and sets out_value if found.
-    bool get(const std::string& key, std::string& out_value) const;
-
-    // Number of unique keys stored.
     size_t size() const;
+    size_t byte_size() const;   // approximate bytes for flush threshold
+
+    const std::map<std::string, VLogPointer>& entries() const { return table_; }
 
 private:
-    std::map<std::string, std::string> table_;
+    std::map<std::string, VLogPointer> table_;
+    size_t byte_size_ = 0;
 };
 
 #endif // STDB_MEMTABLE_H
+
+// partial state 1723
