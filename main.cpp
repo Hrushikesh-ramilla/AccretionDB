@@ -1,24 +1,13 @@
-// Phase 1 — Test Runner
-// Validates: WAL, Memtable, KVStore, crash recovery, corruption handling.
+// Phase 1 + Phase 2 — Full Test Runner.
 
 #include "kvstore.h"
 
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <string>
-
-// ── Platform-specific raw write for corruption simulation ──────
-#ifdef _WIN32
-  #include <io.h>
-  #include <fcntl.h>
-  #include <sys/stat.h>
-#else
-  #include <unistd.h>
-  #include <fcntl.h>
-#endif
+#include <vector>
 
 // ── Test helpers ───────────────────────────────────────────────
 
@@ -39,162 +28,322 @@ static void expect_eq(const std::string& actual, const std::string& expected,
 }
 
 static void expect_true(bool cond, const std::string& label) {
-    if (cond) {
-        std::cout << "  [PASS] " << label << "\n";
-        ++g_pass;
-    } else {
-        std::cout << "  [FAIL] " << label << "\n";
-        ++g_fail;
-    }
+    if (cond) { std::cout << "  [PASS] " << label << "\n"; ++g_pass; }
+    else      { std::cout << "  [FAIL] " << label << "\n"; ++g_fail; }
 }
 
-// ── Raw file write helper for corruption simulation ────────────
+// ── Raw bytes helper for corruption tests ──────────────────────
+#ifdef _WIN32
+  #include <io.h>
+  #include <fcntl.h>
+  #include <sys/stat.h>
+#else
+  #include <unistd.h>
+  #include <fcntl.h>
+#endif
+
 static void append_raw_bytes(const std::string& path,
                              const void* data, size_t len) {
 #ifdef _WIN32
     int fd = _open(path.c_str(),
                    _O_WRONLY | _O_APPEND | _O_CREAT | _O_BINARY,
                    _S_IREAD | _S_IWRITE);
-    if (fd >= 0) {
-        _write(fd, data, static_cast<unsigned int>(len));
-        _close(fd);
-    }
+    if (fd >= 0) { _write(fd, data, static_cast<unsigned int>(len)); _close(fd); }
 #else
     int fd = open(path.c_str(), O_WRONLY | O_APPEND | O_CREAT, 0644);
-    if (fd >= 0) {
-        [[maybe_unused]] auto _ = write(fd, data, len);
-        close(fd);
-    }
+    if (fd >= 0) { [[maybe_unused]] auto _ = write(fd, data, len); close(fd); }
 #endif
 }
 
-// ── Tests ──────────────────────────────────────────────────────
+static void clean_dir(const std::string& dir) {
+    std::filesystem::remove_all(dir);
+}
 
-static void test_basic_put_get(const std::string& wal_path) {
+// ═══════════════════════════════════════════════════════════════
+// Phase 1 Tests (adapted for directory-based KVStore)
+// ═══════════════════════════════════════════════════════════════
+
+static void test_basic_put_get(const std::string& dir) {
     std::cout << "\n=== Test 1: Basic Put / Get ===\n";
-    std::filesystem::remove(wal_path);
+    clean_dir(dir);
 
-    KVStore store(wal_path);
+    KVStore store(dir);
     store.put("name",   "wisckey");
     store.put("engine", "lsm");
-    store.put("phase",  "one");
+    store.put("phase",  "two");
     store.put("status", "active");
 
     std::string v;
     store.get("name", v);    expect_eq(v, "wisckey", "name");
     store.get("engine", v);  expect_eq(v, "lsm",     "engine");
-    store.get("phase", v);   expect_eq(v, "one",     "phase");
+    store.get("phase", v);   expect_eq(v, "two",     "phase");
     store.get("status", v);  expect_eq(v, "active",  "status");
-
     expect_true(!store.get("missing", v), "missing key returns false");
 }
 
-static void test_restart_recovery(const std::string& wal_path) {
+static void test_restart_recovery(const std::string& dir) {
     std::cout << "\n=== Test 2: Restart Recovery ===\n";
-    // WAL from Test 1 persists on disk. Reconstruct KVStore.
-    KVStore store(wal_path);
+    KVStore store(dir);
 
     expect_true(store.memtable_size() == 4, "recovered 4 entries");
-
     std::string v;
     store.get("name", v);    expect_eq(v, "wisckey", "name after recovery");
     store.get("engine", v);  expect_eq(v, "lsm",     "engine after recovery");
-    store.get("phase", v);   expect_eq(v, "one",     "phase after recovery");
+    store.get("phase", v);   expect_eq(v, "two",     "phase after recovery");
     store.get("status", v);  expect_eq(v, "active",  "status after recovery");
 }
 
-static void test_corrupt_tail(const std::string& wal_path) {
+static void test_corrupt_tail(const std::string& dir) {
     std::cout << "\n=== Test 3: Corrupted WAL Tail ===\n";
-    // WAL still has 4 valid records. Append garbage.
-    uint32_t fake_key_size = 9999;
-    append_raw_bytes(wal_path, &fake_key_size, sizeof(uint32_t));
+    std::string wal_file = dir + "/wal.bin";
+    uint32_t fake = 9999;
+    append_raw_bytes(wal_file, &fake, sizeof(uint32_t));
     const char junk[] = "CORRUPT";
-    append_raw_bytes(wal_path, junk, sizeof(junk));
+    append_raw_bytes(wal_file, junk, sizeof(junk));
 
-    // Must NOT crash, must recover only valid records.
-    KVStore store(wal_path);
-
+    KVStore store(dir);
     expect_true(store.memtable_size() == 4,
                 "recovered exactly 4 valid entries (corrupt tail ignored)");
-
     std::string v;
     store.get("name", v);   expect_eq(v, "wisckey", "name survives corruption");
     store.get("engine", v); expect_eq(v, "lsm",     "engine survives corruption");
 }
 
-static void test_checksum_mismatch(const std::string& wal_path) {
+static void test_checksum_mismatch(const std::string& dir) {
     std::cout << "\n=== Test 4: Checksum Mismatch ===\n";
-    std::filesystem::remove(wal_path);
+    clean_dir(dir);
+    std::filesystem::create_directories(dir);
 
-    // Manually write a record with a WRONG checksum.
-    {
-        std::string key   = "bad";
-        std::string value = "record";
-        uint32_t ks      = static_cast<uint32_t>(key.size());
-        uint32_t vs      = static_cast<uint32_t>(value.size());
-        uint32_t bad_crc = 0xDEADBEEF;  // intentionally wrong
+    std::string wal_file = dir + "/wal.bin";
+    std::string key = "bad", value = "record";
+    uint32_t ks = 3, vs = 6, bad_crc = 0xDEADBEEF;
+    append_raw_bytes(wal_file, &ks,      sizeof(uint32_t));
+    append_raw_bytes(wal_file, &vs,      sizeof(uint32_t));
+    append_raw_bytes(wal_file, &bad_crc, sizeof(uint32_t));
+    append_raw_bytes(wal_file, key.data(),   ks);
+    append_raw_bytes(wal_file, value.data(), vs);
 
-        append_raw_bytes(wal_path, &ks,      sizeof(uint32_t));
-        append_raw_bytes(wal_path, &vs,      sizeof(uint32_t));
-        append_raw_bytes(wal_path, &bad_crc, sizeof(uint32_t));
-        append_raw_bytes(wal_path, key.data(),   ks);
-        append_raw_bytes(wal_path, value.data(), vs);
-    }
-
-    KVStore store(wal_path);
-    expect_true(store.memtable_size() == 0,
-                "zero entries recovered from bad-checksum WAL");
+    KVStore store(dir);
+    expect_true(store.memtable_size() == 0, "zero entries from bad-checksum WAL");
 }
 
-static void test_overwrite_semantics(const std::string& wal_path) {
+static void test_overwrite_semantics(const std::string& dir) {
     std::cout << "\n=== Test 5: Overwrite Semantics ===\n";
-    std::filesystem::remove(wal_path);
+    clean_dir(dir);
 
-    {
-        KVStore store(wal_path);
-        store.put("key", "v1");
-        store.put("key", "v2");
-        store.put("key", "v3");
+    { KVStore s(dir); s.put("key","v1"); s.put("key","v2"); s.put("key","v3");
+      std::string v; s.get("key",v); expect_eq(v,"v3","latest value wins (live)"); }
 
-        std::string v;
-        store.get("key", v);
-        expect_eq(v, "v3", "latest value wins (live)");
-    }
-
-    // Verify overwrite survives recovery.
-    {
-        KVStore store(wal_path);
-        std::string v;
-        store.get("key", v);
-        expect_eq(v, "v3", "latest value wins (after recovery)");
-    }
+    { KVStore s(dir); std::string v; s.get("key",v);
+      expect_eq(v,"v3","latest value wins (after recovery)"); }
 }
 
-static void test_empty_wal(const std::string& wal_path) {
+static void test_empty_wal(const std::string& dir) {
     std::cout << "\n=== Test 6: Empty WAL ===\n";
-    std::filesystem::remove(wal_path);
+    clean_dir(dir);
 
-    KVStore store(wal_path);
+    KVStore store(dir);
     expect_true(store.memtable_size() == 0, "empty WAL yields empty memtable");
-
     std::string v;
     expect_true(!store.get("anything", v), "get on empty store returns false");
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Phase 2 Tests
+// ═══════════════════════════════════════════════════════════════
+
+static void test_vlog_roundtrip(const std::string& dir) {
+    std::cout << "\n=== Test 7: VLog Append + Read Roundtrip ===\n";
+    clean_dir(dir);
+
+    KVStore store(dir);
+    std::vector<std::pair<std::string,std::string>> data = {
+        {"k1","hello"}, {"k2","world"}, {"k3","storage"}, {"k4","engine"}
+    };
+    for (auto& [k,v] : data) store.put(k, v);
+
+    std::string v;
+    for (auto& [k,expected] : data) {
+        store.get(k, v);
+        expect_eq(v, expected, "vlog roundtrip: " + k);
+    }
+}
+
+static void test_flush_correctness(const std::string& dir) {
+    std::cout << "\n=== Test 8: Flush Correctness ===\n";
+    clean_dir(dir);
+
+    {
+        KVStore store(dir);
+        // Insert enough to exceed 4 MiB threshold.
+        // Each entry: key ~10 bytes + VLogPointer 16 bytes ≈ 26 bytes.
+        // Need ~160K entries for 4 MiB. Use larger values to reduce count.
+        std::string big_value(1024, 'X');  // 1 KiB value
+        int count = 4200;  // ~4200 * (10 + 16) ≈ 109 KiB key-ptr, but byte_size
+        // Actually byte_size counts key+sizeof(VLogPointer), so need more entries.
+        // Use smaller count with bigger keys to test the mechanism.
+        // Let's force flush by inserting many entries.
+        for (int i = 0; i < count; ++i) {
+            std::string key = "flush_key_" + std::to_string(i);
+            // pad key to make byte_size grow faster
+            key.resize(1000, 'k');
+            store.put(key, big_value);
+        }
+        // byte_size per entry ≈ 1000 + 16 = 1016 bytes.
+        // 4200 entries ≈ 4.26 MiB → should trigger flush.
+    }
+
+    // Verify SSTable was created.
+    bool found_sst = false;
+    for (auto& e : std::filesystem::directory_iterator(dir))
+        if (e.path().filename().string().find("sst_") == 0) found_sst = true;
+    expect_true(found_sst, "SSTable file created after flush");
+
+    // Verify data survives recovery (from SSTable + WAL).
+    {
+        KVStore store(dir);
+        std::string v;
+        std::string key0 = "flush_key_0";
+        key0.resize(1000, 'k');
+        store.get(key0, v);
+        expect_eq(v, std::string(1024, 'X'), "flushed value readable after recovery");
+    }
+}
+
+static void test_read_from_sst(const std::string& dir) {
+    std::cout << "\n=== Test 9: Read From SSTable ===\n";
+    clean_dir(dir);
+
+    std::string big_val(1024, 'R');
+    {
+        KVStore store(dir);
+        // Write enough to trigger flush, then add a few more after flush.
+        for (int i = 0; i < 4200; ++i) {
+            std::string key = "sst_read_" + std::to_string(i);
+            key.resize(1000, 'k');
+            store.put(key, big_val);
+        }
+        // These should be in the new active memtable after flush:
+        store.put("after_flush", "still_works");
+    }
+
+    {
+        KVStore store(dir);
+        std::string v;
+        // Key from SSTable:
+        std::string key100 = "sst_read_100";
+        key100.resize(1000, 'k');
+        store.get(key100, v);
+        expect_eq(v, big_val, "read from SSTable via vlog");
+
+        // Key from post-flush WAL:
+        store.get("after_flush", v);
+        expect_eq(v, "still_works", "read from WAL after flush");
+    }
+}
+
+static void test_recovery_vlog_deleted(const std::string& dir) {
+    std::cout << "\n=== Test 10: Recovery With VLog Deleted ===\n";
+    clean_dir(dir);
+
+    {
+        KVStore store(dir);
+        store.put("a", "alpha");
+        store.put("b", "bravo");
+        store.put("c", "charlie");
+    }
+
+    // Delete the vlog — simulate loss.
+    std::filesystem::remove(dir + "/vlog.bin");
+
+    {
+        KVStore store(dir);  // should reconstruct vlog from WAL
+        std::string v;
+        store.get("a", v); expect_eq(v, "alpha",   "recovered a after vlog loss");
+        store.get("b", v); expect_eq(v, "bravo",   "recovered b after vlog loss");
+        store.get("c", v); expect_eq(v, "charlie", "recovered c after vlog loss");
+    }
+}
+
+static void test_flush_recovery_cycle(const std::string& dir) {
+    std::cout << "\n=== Test 11: Flush + Recovery Cycle ===\n";
+    clean_dir(dir);
+
+    {
+        KVStore store(dir);
+        std::string val(1024, 'F');
+        for (int i = 0; i < 4200; ++i) {
+            std::string key = "cycle_" + std::to_string(i);
+            key.resize(1000, 'k');
+            store.put(key, val);
+        }
+        store.put("post_flush", "alive");
+    }
+
+    {
+        KVStore store(dir);
+        std::string v;
+        store.get("post_flush", v);
+        expect_eq(v, "alive", "post-flush key survives full cycle");
+
+        std::string key0 = "cycle_0";
+        key0.resize(1000, 'k');
+        store.get(key0, v);
+        expect_eq(v, std::string(1024, 'F'), "flushed key survives full cycle");
+    }
+}
+
+static void test_multi_sst_overwrite(const std::string& dir) {
+    std::cout << "\n=== Test 12: Multi-SST Overwrite ===\n";
+    clean_dir(dir);
+
+    {
+        KVStore store(dir);
+        std::string val(1024, 'A');
+        // First batch → triggers flush.
+        for (int i = 0; i < 4200; ++i) {
+            std::string key = "multi_" + std::to_string(i);
+            key.resize(1000, 'k');
+            store.put(key, val);
+        }
+        // Overwrite key 0 in second batch.
+        std::string key0 = "multi_0";
+        key0.resize(1000, 'k');
+        store.put(key0, "OVERWRITTEN");
+    }
+
+    {
+        KVStore store(dir);
+        std::string v;
+        std::string key0 = "multi_0";
+        key0.resize(1000, 'k');
+        store.get(key0, v);
+        expect_eq(v, "OVERWRITTEN", "overwrite across SST + WAL boundary");
+    }
 }
 
 // ── main ───────────────────────────────────────────────────────
 
 int main() {
-    const std::string wal_path = "test_wal.bin";
+    const std::string dir = "test_stdb";
 
-    test_basic_put_get(wal_path);
-    test_restart_recovery(wal_path);
-    test_corrupt_tail(wal_path);
-    test_checksum_mismatch(wal_path);
-    test_overwrite_semantics(wal_path);
-    test_empty_wal(wal_path);
+    // Phase 1 tests.
+    test_basic_put_get(dir);
+    test_restart_recovery(dir);
+    test_corrupt_tail(dir);
+    test_checksum_mismatch(dir);
+    test_overwrite_semantics(dir);
+    test_empty_wal(dir);
 
-    // Cleanup.
-    std::filesystem::remove(wal_path);
+    // Phase 2 tests.
+    test_vlog_roundtrip(dir);
+    test_flush_correctness(dir);
+    test_read_from_sst(dir);
+    test_recovery_vlog_deleted(dir);
+    test_flush_recovery_cycle(dir);
+    test_multi_sst_overwrite(dir);
+
+    clean_dir(dir);
 
     std::cout << "\n──────────────────────────────\n"
               << "Results: " << g_pass << " passed, "
@@ -202,3 +351,5 @@ int main() {
 
     return g_fail > 0 ? 1 : 0;
 }
+
+// partial state 8593
