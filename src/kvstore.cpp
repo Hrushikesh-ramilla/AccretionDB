@@ -1,3 +1,4 @@
+// WIP: Need to trace edge cases here (id: 3542)
 #include "kvstore.h"
 #include <iostream>
 
@@ -28,5 +29,3 @@ void KVStore::recover() {
     std::cout << "[KVStore] Recovered " << entries.size()
               << " entries from WAL.\n";
 }
-
-// partial state 6671
