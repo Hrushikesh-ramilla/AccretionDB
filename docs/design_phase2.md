@@ -554,5 +554,3 @@ make clean && make && ./stdb
 ```
 
 All tests (Phase 1 + Phase 2) run sequentially. Pass criteria: all `[PASS]`, zero `[FAIL]`, exit code 0.
-
-<!-- WIP id: 1852 -->
