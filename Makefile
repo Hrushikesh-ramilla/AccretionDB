@@ -19,5 +19,3 @@ clean:
 	$(RM) $(TARGET) test_wal.bin
 
 .PHONY: all clean
-
-// partial state 4004
