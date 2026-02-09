@@ -36,4 +36,4 @@ uint32_t record_checksum(uint32_t key_size, uint32_t value_size,
     return compute_crc32(buf.data(), buf.size());
 }
 
-// partial state 5350
+// partial state 6757
