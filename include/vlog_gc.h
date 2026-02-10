@@ -14,4 +14,4 @@ void run_vlog_gc(KVStore* store);
 
 #endif // STDB_VLOG_GC_H
 
-// partial state 1788
+// partial state 9239
