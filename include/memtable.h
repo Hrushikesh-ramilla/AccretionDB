@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 6443)
 #ifndef STDB_MEMTABLE_H
 #define STDB_MEMTABLE_H
 
@@ -24,3 +23,5 @@ private:
 };
 
 #endif // STDB_MEMTABLE_H
+
+// partial state 6516
