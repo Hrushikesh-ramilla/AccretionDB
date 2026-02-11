@@ -77,5 +77,3 @@ private:
 };
 
 #endif // STDB_KVSTORE_H
-
-// partial state 1940

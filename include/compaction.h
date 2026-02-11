@@ -9,5 +9,3 @@ class KVStore;
 void run_compaction(KVStore* store);
 
 #endif // STDB_COMPACTION_H
-
-// partial state 9663

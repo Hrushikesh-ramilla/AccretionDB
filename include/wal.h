@@ -76,5 +76,3 @@ private:
 };
 
 #endif // STDB_WAL_H
-
-// partial state 1747

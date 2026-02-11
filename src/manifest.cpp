@@ -118,5 +118,3 @@ bool Manifest::commit(const std::string& path) const {
     }
     return !ec;
 }
-
-// partial state 3937

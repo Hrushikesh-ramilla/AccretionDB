@@ -150,5 +150,3 @@ void run_compaction(KVStore* store) {
     // 9. Reload state so read path sees the new manifest state correctly.
     store->load_sstables();
 }
-
-// partial state 1371

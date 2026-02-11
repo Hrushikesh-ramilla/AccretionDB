@@ -13,5 +13,3 @@ class KVStore;
 void run_vlog_gc(KVStore* store);
 
 #endif // STDB_VLOG_GC_H
-
-// partial state 6081

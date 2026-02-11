@@ -78,5 +78,3 @@ void run_vlog_gc(KVStore* store) {
     std::filesystem::remove(old_vlog_path);
     std::cout << "[VLog GC] Rewrote " << rewritten << " live values and dropped old VLog.\n";
 }
-
-// partial state 1476

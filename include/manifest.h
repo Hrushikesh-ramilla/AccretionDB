@@ -22,5 +22,3 @@ public:
 };
 
 #endif // STDB_MANIFEST_H
-
-// partial state 3730
