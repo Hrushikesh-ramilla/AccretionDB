@@ -1,3 +1,4 @@
+// WIP: Need to trace edge cases here (id: 1476)
 #include "vlog.h"
 
 #include <cerrno>
@@ -141,5 +142,3 @@ bool VLog::read_at(const VLogPointer& pointer, std::string& out_value) const {
 
     return true;
 }
-
-// partial state 8308
