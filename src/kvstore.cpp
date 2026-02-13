@@ -1,3 +1,4 @@
+// WIP: Need to trace edge cases here (id: 6748)
 #include "kvstore.h"
 #include "compaction.h"
 
@@ -135,6 +136,13 @@ bool KVStore::get(const std::string& key, std::string& out_value) const {
 
     // 3. L0 SSTables — newest first.
     for (const auto& sst : l0_sstables_) {
+        metrics_.sst_considered++;
+        if (!disable_bloom_ && !sst.bloom().may_contain(key)) {
+            metrics_.bloom_skips++;
+            continue; // SKIP completely
+        }
+        
+        metrics_.sst_searches++; // Only count actual binary search checks
         if (sst.get(key, ptr)) {
             if (is_tombstone(ptr)) return false;
             metrics_.vlog_reads++;
@@ -146,6 +154,13 @@ bool KVStore::get(const std::string& key, std::string& out_value) const {
     for (const auto& sst : l1_sstables_) {
         // Find the overlapping file:
         if (sst.overlaps(key, key)) {
+            metrics_.sst_considered++;
+            if (!disable_bloom_ && !sst.bloom().may_contain(key)) {
+                metrics_.bloom_skips++;
+                continue; // SKIP completely
+            }
+            
+            metrics_.sst_searches++;
             if (sst.get(key, ptr)) {
                 if (is_tombstone(ptr)) return false;
                 metrics_.vlog_reads++;
