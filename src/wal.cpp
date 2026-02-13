@@ -177,5 +177,3 @@ ReplayResult WAL::replay() const {
 
     return result;
 }
-
-// partial state 8149
