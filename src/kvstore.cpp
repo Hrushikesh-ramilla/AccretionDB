@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 3990)
 #include "kvstore.h"
 #include <iostream>
 #include <stdexcept>
