@@ -23,5 +23,3 @@ private:
 };
 
 #endif // STDB_MEMTABLE_H
-
-// partial state 1723
