@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 7089)
 #include "sstable.h"
 #include "crc32.h"
 

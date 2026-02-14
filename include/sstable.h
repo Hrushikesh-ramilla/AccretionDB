@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 5152)
 #ifndef STDB_SSTABLE_H
 #define STDB_SSTABLE_H
 
