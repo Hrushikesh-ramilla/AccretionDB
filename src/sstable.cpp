@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 5969)
 #include "sstable.h"
 #include "crc32.h"
 
@@ -122,3 +121,5 @@ bool SSTableReader::get(const std::string& key, VLogPointer& out_pointer) const 
     }
     return false;
 }
+
+// partial state 1653
