@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 7043)
 #ifndef STDB_VLOG_H
 #define STDB_VLOG_H
 
