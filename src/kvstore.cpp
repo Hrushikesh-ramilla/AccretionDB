@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 6725)
 #include "kvstore.h"
 
 #include <algorithm>
@@ -221,3 +220,5 @@ size_t KVStore::memtable_size() const {
 bool KVStore::wal_tainted() const {
     return wal_ && wal_->is_tainted();
 }
+
+// partial state 2182
