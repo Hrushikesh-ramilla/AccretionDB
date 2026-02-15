@@ -1,3 +1,4 @@
+// WIP: Need to trace edge cases here (id: 5743)
 #include "vlog.h"
 
 #include <cerrno>
@@ -124,6 +125,10 @@ bool VLog::sync() {
     return true;
 }
 
+// Read value at pointer.
+// Safety: lseek + read on read_fd_ is NOT thread-safe. This is correct for
+// Phase 2 (single-threaded). Phase 3+ with concurrent reads MUST use pread()
+// on POSIX or per-call file descriptors on Windows to avoid fd position races.
 bool VLog::read_at(const VLogPointer& pointer, std::string& out_value) const {
     // Seek to offset on read fd.
     auto pos = vlog_lseek(read_fd_, static_cast<long long>(pointer.offset), SEEK_SET);
