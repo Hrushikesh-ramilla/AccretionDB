@@ -1,42 +1,62 @@
+// WIP: Need to trace edge cases here (id: 1825)
 #ifndef STDB_KVSTORE_H
 #define STDB_KVSTORE_H
 
 #include "wal.h"
+#include "vlog.h"
 #include "memtable.h"
+#include "sstable.h"
+
+#include <memory>
 #include <string>
+#include <vector>
 #include <stdexcept>
 
-// KVStore — engine core.
+// KVStore — engine core (Phase 2).
 //
-// Write path (strict order, non-negotiable):
-//   1. WAL.append(key, value)    — if fails → throw, DO NOT touch memtable
-//   2. WAL.sync()                — if fails → throw, DO NOT touch memtable
-//   3. Memtable.put(key, value)
+// Write path (strict order):
+//   1. WAL.append(key, value)    — full record
+//   2. WAL.sync()                — durability boundary
+//   3. VLog.append(value)        — returns pointer
+//   4. VLog.sync()               — pointer validity boundary
+//   5. Memtable.put(key, pointer)— only if 1–4 succeed
 //
-// On construction: replays WAL → rebuilds memtable (idempotent).
+// Read path:
+//   active memtable → immutable memtable → SSTables (newest-first) → VLog read
+//
+// Flush: synchronous, 4 MiB threshold, SSTable + WAL rotation.
+// Recovery: WAL replay → rebuild vlog + memtable. SSTables loaded from disk.
 class KVStore {
 public:
-    // Opens/creates the WAL at wal_path and recovers state.
-    explicit KVStore(const std::string& wal_path);
+    explicit KVStore(const std::string& data_dir);
 
-    // Write a key-value pair (durable after return).
-    // Throws std::runtime_error if WAL append or sync fails.
     void put(const std::string& key, const std::string& value);
-
-    // Read a key. Returns true and sets out_value if found.
     bool get(const std::string& key, std::string& out_value) const;
 
-    // Number of unique keys in the memtable (for diagnostics/testing).
     size_t memtable_size() const;
-
-    // True if the WAL was tainted (corruption detected during replay).
-    bool wal_tainted() const;
+    bool   wal_tainted() const;
 
 private:
-    void recover();
+    void     recover();
+    void     load_sstables();
+    void     maybe_flush();
+    void     flush();
+    void     rotate_wal();
+    uint32_t next_sst_sequence() const;
 
-    WAL      wal_;
-    Memtable memtable_;
+    std::string wal_path() const;
+    std::string wal_new_path() const;
+    std::string vlog_path() const;
+    std::string sst_path(uint32_t seq) const;
+
+    std::string                  data_dir_;
+    std::unique_ptr<WAL>         wal_;
+    std::unique_ptr<VLog>        vlog_;
+    std::unique_ptr<Memtable>    active_;
+    std::unique_ptr<Memtable>    immutable_;
+    std::vector<SSTableReader>   sstables_;   // sorted newest-first
+
+    static constexpr size_t FLUSH_THRESHOLD = 4u * 1024u * 1024u;  // 4 MiB
 };
 
 #endif // STDB_KVSTORE_H
