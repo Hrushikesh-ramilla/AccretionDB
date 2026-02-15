@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 5198)
 #ifndef STDB_KVSTORE_H
 #define STDB_KVSTORE_H
 
