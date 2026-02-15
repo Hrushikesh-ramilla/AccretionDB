@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 6003)
 #include "kvstore.h"
 #include "compaction.h"
 
