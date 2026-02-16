@@ -1,3 +1,4 @@
+// WIP: Need to trace edge cases here (id: 1733)
 #ifndef STDB_KVSTORE_H
 #define STDB_KVSTORE_H
 
@@ -23,8 +24,8 @@
 // Read path:
 //   active memtable → immutable memtable → SSTables (newest-first) → VLog read
 //
-// Flush: synchronous, 4 MiB threshold, SSTable + WAL rotation.
-// Recovery: WAL replay → rebuild vlog + memtable. SSTables loaded from disk.
+// WAL files: wal_NNNNNN.log (monotonically increasing).
+// Rotation: create new WAL → fsync → switch → delete old (I19 safe).
 class KVStore {
 public:
     explicit KVStore(const std::string& data_dir);
@@ -38,13 +39,13 @@ public:
 private:
     void     recover();
     void     load_sstables();
+    void     scan_wal_files(std::vector<std::string>& paths, uint32_t& max_id) const;
     void     maybe_flush();
     void     flush();
     void     rotate_wal();
     uint32_t next_sst_sequence() const;
 
-    std::string wal_path() const;
-    std::string wal_new_path() const;
+    std::string wal_path(uint32_t id) const;
     std::string vlog_path() const;
     std::string sst_path(uint32_t seq) const;
 
@@ -54,6 +55,7 @@ private:
     std::unique_ptr<Memtable>    active_;
     std::unique_ptr<Memtable>    immutable_;
     std::vector<SSTableReader>   sstables_;   // sorted newest-first
+    uint32_t                     current_wal_id_ = 1;
 
     static constexpr size_t FLUSH_THRESHOLD = 4u * 1024u * 1024u;  // 4 MiB
 };

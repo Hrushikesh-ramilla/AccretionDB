@@ -1,3 +1,4 @@
+// WIP: Need to trace edge cases here (id: 2610)
 // Phase 1 + Phase 2 — Full Test Runner.
 
 #include "kvstore.h"
@@ -59,6 +60,16 @@ static void clean_dir(const std::string& dir) {
     std::filesystem::remove_all(dir);
 }
 
+// Find the active WAL file in a directory (wal_NNNNNN.log).
+static std::string find_wal_file(const std::string& dir) {
+    for (auto& e : std::filesystem::directory_iterator(dir)) {
+        auto name = e.path().filename().string();
+        if (name.substr(0, 4) == "wal_" && name.substr(name.size()-4) == ".log")
+            return e.path().string();
+    }
+    return dir + "/wal_000001.log";
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Phase 1 Tests (adapted for directory-based KVStore)
 // ═══════════════════════════════════════════════════════════════
@@ -95,7 +106,7 @@ static void test_restart_recovery(const std::string& dir) {
 
 static void test_corrupt_tail(const std::string& dir) {
     std::cout << "\n=== Test 3: Corrupted WAL Tail ===\n";
-    std::string wal_file = dir + "/wal.bin";
+    std::string wal_file = find_wal_file(dir);
     uint32_t fake = 9999;
     append_raw_bytes(wal_file, &fake, sizeof(uint32_t));
     const char junk[] = "CORRUPT";
@@ -114,7 +125,7 @@ static void test_checksum_mismatch(const std::string& dir) {
     clean_dir(dir);
     std::filesystem::create_directories(dir);
 
-    std::string wal_file = dir + "/wal.bin";
+    std::string wal_file = dir + "/wal_000001.log";
     std::string key = "bad", value = "record";
     uint32_t ks = 3, vs = 6, bad_crc = 0xDEADBEEF;
     append_raw_bytes(wal_file, &ks,      sizeof(uint32_t));
@@ -322,6 +333,55 @@ static void test_multi_sst_overwrite(const std::string& dir) {
     }
 }
 
+static void test_wal_rotation_safety(const std::string& dir) {
+    std::cout << "\n=== Test 13: WAL Rotation Safety (I19) ===\n";
+    clean_dir(dir);
+
+    // Write enough to trigger flush → WAL rotation.
+    {
+        KVStore store(dir);
+        std::string val(1024, 'W');
+        for (int i = 0; i < 4200; ++i) {
+            std::string key = "rotation_" + std::to_string(i);
+            key.resize(1000, 'k');
+            store.put(key, val);
+        }
+        // After flush, old WAL is deleted and new WAL is active.
+        // Write one more entry to the new WAL.
+        store.put("after_rotation", "safe");
+    }
+
+    // Simulate crash BETWEEN new WAL creation and old WAL deletion:
+    // Manually create a second (old) WAL with extra data. Both WALs exist.
+    // Recovery must replay BOTH and produce correct state.
+    std::string extra_wal = dir + "/wal_000001.log";
+    if (!std::filesystem::exists(extra_wal)) {
+        // The old WAL was already deleted. Create a fake "leftover" WAL
+        // with a known entry to verify multi-WAL replay.
+        WAL leftover(extra_wal);
+        leftover.append("leftover_key", "leftover_val");
+        leftover.sync();
+    }
+
+    {
+        KVStore store(dir);
+        std::string v;
+        // Data from SSTable must survive.
+        std::string key0 = "rotation_0";
+        key0.resize(1000, 'k');
+        store.get(key0, v);
+        expect_eq(v, std::string(1024, 'W'), "SSTable data survives rotation");
+
+        // Data from new WAL must survive.
+        store.get("after_rotation", v);
+        expect_eq(v, "safe", "post-rotation WAL data survives");
+
+        // Leftover WAL replayed too.
+        store.get("leftover_key", v);
+        expect_eq(v, "leftover_val", "leftover WAL replayed (multi-WAL recovery)");
+    }
+}
+
 // ── main ───────────────────────────────────────────────────────
 
 int main() {
@@ -342,6 +402,7 @@ int main() {
     test_recovery_vlog_deleted(dir);
     test_flush_recovery_cycle(dir);
     test_multi_sst_overwrite(dir);
+    test_wal_rotation_safety(dir);
 
     clean_dir(dir);
 

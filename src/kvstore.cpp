@@ -1,16 +1,22 @@
+// WIP: Need to trace edge cases here (id: 7750)
 #include "kvstore.h"
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
 
 // ── Path helpers ───────────────────────────────────────────────
 
-std::string KVStore::wal_path()     const { return data_dir_ + "/wal.bin"; }
-std::string KVStore::wal_new_path() const { return data_dir_ + "/wal.bin.new"; }
-std::string KVStore::vlog_path()    const { return data_dir_ + "/vlog.bin"; }
+std::string KVStore::wal_path(uint32_t id) const {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "/wal_%06u.log", id);
+    return data_dir_ + buf;
+}
+
+std::string KVStore::vlog_path() const { return data_dir_ + "/vlog.bin"; }
 
 std::string KVStore::sst_path(uint32_t seq) const {
     char buf[64];
@@ -23,6 +29,26 @@ uint32_t KVStore::next_sst_sequence() const {
     for (const auto& s : sstables_)
         if (s.sequence() > max_seq) max_seq = s.sequence();
     return max_seq + 1;
+}
+
+// Scan data_dir_ for wal_*.log files. Returns sorted paths and max id found.
+void KVStore::scan_wal_files(std::vector<std::string>& paths, uint32_t& max_id) const {
+    paths.clear();
+    max_id = 0;
+    if (!std::filesystem::exists(data_dir_)) return;
+
+    for (const auto& entry : std::filesystem::directory_iterator(data_dir_)) {
+        auto name = entry.path().filename().string();
+        if (name.size() > 4 && name.substr(0, 4) == "wal_" &&
+            name.size() > 4 && name.substr(name.size() - 4) == ".log") {
+            uint32_t id = static_cast<uint32_t>(
+                std::strtoul(name.c_str() + 4, nullptr, 10));
+            if (id > max_id) max_id = id;
+            paths.push_back(entry.path().string());
+        }
+    }
+    // Sort ascending by filename (lexicographic = numeric due to zero-padding).
+    std::sort(paths.begin(), paths.end());
 }
 
 // ── Constructor ────────────────────────────────────────────────
@@ -109,7 +135,7 @@ void KVStore::flush() {
 
     sstables_.insert(sstables_.begin(), std::move(reader));
 
-    // 4. WAL rotation (crash-safe: create before delete).
+    // 4. WAL rotation (crash-safe: create-before-delete, I19).
     rotate_wal();
 
     // 5. Discard immutable memtable.
@@ -120,32 +146,45 @@ void KVStore::flush() {
               << "\n";
 }
 
+// ── WAL rotation (crash-safe, I19) ─────────────────────────────
+//
+// Sequence:
+//   1. Create NEW WAL at wal_{id+1}.log → fsync
+//   2. Switch KVStore to new WAL (close old fd)
+//   3. Delete old WAL at wal_{id}.log
+//
+// Old WAL is NEVER deleted before new WAL is durable.
+// If crash between steps 1 and 3: both WAL files exist on disk.
+// Recovery replays all WAL files in order — duplicates resolved by I8.
+
 void KVStore::rotate_wal() {
-    auto wp = wal_path();
+    uint32_t old_id = current_wal_id_;
+    uint32_t new_id = old_id + 1;
+    std::string old_wp = wal_path(old_id);
+    std::string new_wp = wal_path(new_id);
 
-    // SSTable is already fsynced. Synchronous flush means no concurrent writes.
-    // Safe to close → delete → create at same path.
-    // If crash after delete but before create: SSTable has the data, empty WAL on
-    // next startup is correct (all flushed data is in SSTable).
+    // 1. Create new WAL, fsync (durable BEFORE we touch old).
+    auto new_wal = std::make_unique<WAL>(new_wp);
+    new_wal->sync();
 
-    // 1. Close old WAL fd.
-    wal_.reset();
+    // 2. Switch: old WAL destructor closes its fd.
+    wal_ = std::move(new_wal);
+    current_wal_id_ = new_id;
 
-    // 2. Delete old WAL.
-    std::filesystem::remove(wp);
-
-    // 3. Create fresh WAL at same path, fsync.
-    wal_ = std::make_unique<WAL>(wp);
-    wal_->sync();
+    // 3. NOW safe to delete old WAL (new WAL is durable).
+    std::filesystem::remove(old_wp);
 }
 
 // ── Recovery ───────────────────────────────────────────────────
 
 void KVStore::recover() {
-    auto wp = wal_path();
-
     // Load existing SSTables (validate each).
     load_sstables();
+
+    // Scan for WAL files.
+    std::vector<std::string> wal_files;
+    uint32_t max_wal_id = 0;
+    scan_wal_files(wal_files, max_wal_id);
 
     // VLog handling:
     //   If SSTables exist → keep vlog (SST pointers reference it).
@@ -156,27 +195,40 @@ void KVStore::recover() {
 
     vlog_ = std::make_unique<VLog>(vp);
 
-    // Open WAL.
-    wal_ = std::make_unique<WAL>(wp);
-
-    // Replay WAL: append values to vlog, insert pointers into memtable.
+    // Replay ALL WAL files in order (oldest → newest).
     active_ = std::make_unique<Memtable>();
-    auto result = wal_->replay();
+    size_t total_entries = 0;
+    bool   any_tainted = false;
 
-    for (const auto& e : result.entries) {
-        VLogPointer ptr;
-        if (!vlog_->append(e.value, ptr)) {
-            std::cerr << "[KVStore] ERROR: vlog append failed during recovery\n";
-            continue;
+    for (const auto& wf : wal_files) {
+        WAL temp_wal(wf);
+        auto result = temp_wal.replay();
+        any_tainted = any_tainted || result.tainted;
+
+        for (const auto& e : result.entries) {
+            VLogPointer ptr;
+            if (!vlog_->append(e.value, ptr)) {
+                std::cerr << "[KVStore] ERROR: vlog append failed during recovery\n";
+                continue;
+            }
+            active_->put(e.key, ptr);
         }
-        active_->put(e.key, ptr);
+        total_entries += result.entries.size();
     }
     vlog_->sync();
 
-    std::cout << "[KVStore] Recovered " << result.entries.size() << " entries from WAL";
+    // Set current WAL id and open the active WAL.
+    current_wal_id_ = (max_wal_id > 0) ? max_wal_id : 1;
+
+    // If WAL files existed, the newest is already the active one.
+    // If no WAL files existed, create the first one.
+    wal_ = std::make_unique<WAL>(wal_path(current_wal_id_));
+
+    std::cout << "[KVStore] Recovered " << total_entries << " entries from "
+              << wal_files.size() << " WAL(s)";
     if (!sstables_.empty())
         std::cout << ", loaded " << sstables_.size() << " SSTables";
-    if (result.tainted)
+    if (any_tainted)
         std::cout << " (WAL TAINTED)";
     std::cout << "\n";
 }
