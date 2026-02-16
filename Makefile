@@ -1,6 +1,6 @@
 CXX      = g++
 CXXFLAGS = -std=c++20 -Wall -Wextra -Iinclude
-SRCS     = src/crc32.cpp src/wal.cpp src/vlog.cpp src/sstable.cpp src/memtable.cpp src/manifest.cpp src/compaction.cpp src/vlog_gc.cpp src/kvstore.cpp main.cpp
+SRCS     = src/crc32.cpp src/wal.cpp src/vlog.cpp src/sstable.cpp src/memtable.cpp src/manifest.cpp src/compaction.cpp src/vlog_gc.cpp src/bloom.cpp src/benchmark.cpp src/cli.cpp src/kvstore.cpp main.cpp
 TARGET   = stdb
 
 ifeq ($(OS),Windows_NT)
@@ -22,3 +22,5 @@ clean:
 	$(RMDIR) test_stdb 2>nul || true
 
 .PHONY: all clean
+
+// partial state 3426
