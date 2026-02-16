@@ -108,6 +108,27 @@ bool WAL::append(const std::string& key, const std::string& value) {
     return true;
 }
 
+// ── append_delete ──────────────────────────────────────────────
+bool WAL::append_delete(const std::string& key) {
+    uint32_t key_size   = static_cast<uint32_t>(key.size());
+    uint32_t value_size = 0xFFFFFFFF; // Tombstone marker
+    uint32_t checksum   = record_checksum(key_size, value_size, key, "");
+
+    const size_t record_len = sizeof(uint32_t) * 3 + key_size;
+    std::vector<uint8_t> record(record_len);
+    size_t off = 0;
+    std::memcpy(record.data() + off, &key_size,   sizeof(uint32_t)); off += sizeof(uint32_t);
+    std::memcpy(record.data() + off, &value_size, sizeof(uint32_t)); off += sizeof(uint32_t);
+    std::memcpy(record.data() + off, &checksum,   sizeof(uint32_t)); off += sizeof(uint32_t);
+    std::memcpy(record.data() + off, key.data(),   key_size);
+
+    if (!write_all(fd_, record.data(), record_len)) {
+        std::cerr << "[WAL] ERROR: failed to write tombstone\n";
+        return false;
+    }
+    return true;
+}
+
 // ── sync ───────────────────────────────────────────────────────
 bool WAL::sync() {
     if (wal_fsync(fd_) != 0) {
@@ -143,12 +164,20 @@ ReplayResult WAL::replay() const {
         if (!read_exact(rfd, &value_size,      sizeof(uint32_t))) break;
         if (!read_exact(rfd, &stored_checksum, sizeof(uint32_t))) break;
 
-        // Size sanity check — corruption guard.
-        if (key_size > MAX_FIELD_SIZE || value_size > MAX_FIELD_SIZE) break;
-
         // Read key.
         std::string key(key_size, '\0');
         if (key_size > 0 && !read_exact(rfd, key.data(), key_size)) break;
+
+        // Check if tombstone
+        if (value_size == 0xFFFFFFFF) {
+            uint32_t expected = record_checksum(key_size, value_size, key, "");
+            if (stored_checksum != expected) break;
+            result.entries.push_back({std::move(key), "", true});
+            continue;
+        }
+
+        // Size sanity check — corruption guard.
+        if (key_size > MAX_FIELD_SIZE || value_size > MAX_FIELD_SIZE) break;
 
         // Read value.
         std::string value(value_size, '\0');
@@ -158,7 +187,7 @@ ReplayResult WAL::replay() const {
         uint32_t expected = record_checksum(key_size, value_size, key, value);
         if (stored_checksum != expected) break;
 
-        result.entries.push_back({std::move(key), std::move(value)});
+        result.entries.push_back({std::move(key), std::move(value), false});
         continue;
     }
 
@@ -177,3 +206,5 @@ ReplayResult WAL::replay() const {
 
     return result;
 }
+
+// partial state 6090

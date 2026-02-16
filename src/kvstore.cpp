@@ -1,4 +1,5 @@
 #include "kvstore.h"
+#include "compaction.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -23,10 +24,19 @@ std::string KVStore::sst_path(uint32_t seq) const {
     return data_dir_ + buf;
 }
 
+std::string KVStore::manifest_path() const { return data_dir_ + "/MANIFEST"; }
+
 uint32_t KVStore::next_sst_sequence() const {
     uint32_t max_seq = 0;
-    for (const auto& s : sstables_)
-        if (s.sequence() > max_seq) max_seq = s.sequence();
+    if (!std::filesystem::exists(data_dir_)) return 1;
+    for (const auto& entry : std::filesystem::directory_iterator(data_dir_)) {
+        auto name = entry.path().filename().string();
+        if (name.size() > 4 && name.substr(0, 4) == "sst_" &&
+            name.substr(name.size() - 4) == ".sst") {
+            uint32_t seq = static_cast<uint32_t>(std::strtoul(name.c_str()+4, nullptr, 10));
+            if (seq > max_seq) max_seq = seq;
+        }
+    }
     return max_seq + 1;
 }
 
@@ -60,6 +70,20 @@ KVStore::KVStore(const std::string& data_dir)
 
 // ── Write path ─────────────────────────────────────────────────
 
+void KVStore::delete_key(const std::string& key) {
+    maybe_flush();
+    if (!wal_->append_delete(key))
+        throw std::runtime_error("[KVStore] WAL append_delete failed");
+    if (!wal_->sync())
+        throw std::runtime_error("[KVStore] WAL sync failed");
+
+    VLogPointer ptr;
+    ptr.length = 0;
+    ptr.offset = std::numeric_limits<uint64_t>::max();
+    ptr.file_id = current_wal_id_;
+    active_->put(key, ptr);
+}
+
 void KVStore::put(const std::string& key, const std::string& value) {
     maybe_flush();
 
@@ -90,17 +114,34 @@ bool KVStore::get(const std::string& key, std::string& out_value) const {
     VLogPointer ptr;
 
     // 1. Active memtable.
-    if (active_ && active_->get(key, ptr))
+    if (active_ && active_->get(key, ptr)) {
+        if (is_tombstone(ptr)) return false;
         return vlog_->read_at(ptr, out_value);
+    }
 
     // 2. Immutable memtable (exists during flush).
-    if (immutable_ && immutable_->get(key, ptr))
+    if (immutable_ && immutable_->get(key, ptr)) {
+        if (is_tombstone(ptr)) return false;
         return vlog_->read_at(ptr, out_value);
+    }
 
-    // 3. SSTables — newest first.
-    for (const auto& sst : sstables_) {
-        if (sst.get(key, ptr))
+    // 3. L0 SSTables — newest first.
+    for (const auto& sst : l0_sstables_) {
+        if (sst.get(key, ptr)) {
+            if (is_tombstone(ptr)) return false;
             return vlog_->read_at(ptr, out_value);
+        }
+    }
+
+    // 4. L1 SSTables — binary search file boundaries.
+    for (const auto& sst : l1_sstables_) {
+        // Find the overlapping file:
+        if (sst.overlaps(key, key)) {
+            if (sst.get(key, ptr)) {
+                if (is_tombstone(ptr)) return false;
+                return vlog_->read_at(ptr, out_value);
+            }
+        }
     }
 
     return false;
@@ -109,6 +150,13 @@ bool KVStore::get(const std::string& key, std::string& out_value) const {
 // ── Flush ──────────────────────────────────────────────────────
 
 void KVStore::maybe_flush() {
+    // BACKPRESSURE SAFETY CHECK (I21):
+    // Put() calls maybe_flush(), which directly and synchronously executes compaction 
+    // when L0 threshold is exceeded. Because Phase 3 is explicitly single-threaded 
+    // and holds no cross-thread locks, there is NO deadlock risk.
+    if (l0_sstables_.size() > L0_HARD_LIMIT) {
+        compact_l0_to_l1();
+    }
     if (!active_ || active_->byte_size() < FLUSH_THRESHOLD) return;
     flush();
 }
@@ -127,17 +175,23 @@ void KVStore::flush() {
     if (!SSTableWriter::write(path, immutable_->entries()))
         throw std::runtime_error("[KVStore] SSTable flush failed");
 
-    // 3. Load the new SSTable.
+    // 3. Update manifest atomically. New SST forms L0 and is visible AFTER commit.
+    manifest_.version++;
+    manifest_.l0_seqs.push_back(seq);
+    if (!manifest_.commit(manifest_path()))
+        throw std::runtime_error("[KVStore] Manifest commit failed during flush");
+
+    // 4. Load the new SSTable.
     SSTableReader reader;
     if (!reader.load(path))
         throw std::runtime_error("[KVStore] Failed to load flushed SSTable");
 
-    sstables_.insert(sstables_.begin(), std::move(reader));
+    l0_sstables_.insert(l0_sstables_.begin(), std::move(reader));
 
-    // 4. WAL rotation (crash-safe: create-before-delete, I19).
+    // 5. WAL rotation (crash-safe: create-before-delete, I19).
     rotate_wal();
 
-    // 5. Discard immutable memtable.
+    // 6. Discard immutable memtable.
     immutable_.reset();
 
     std::cout << "[KVStore] Flushed SSTable sst_"
@@ -189,7 +243,7 @@ void KVStore::recover() {
     //   If SSTables exist → keep vlog (SST pointers reference it).
     //   If no SSTables    → safe to recreate vlog from WAL.
     auto vp = vlog_path();
-    if (sstables_.empty())
+    if (l0_sstables_.empty() && l1_sstables_.empty())
         std::filesystem::remove(vp);
 
     vlog_ = std::make_unique<VLog>(vp);
@@ -205,6 +259,15 @@ void KVStore::recover() {
         any_tainted = any_tainted || result.tainted;
 
         for (const auto& e : result.entries) {
+            if (e.is_tombstone) {
+                VLogPointer ptr;
+                ptr.length = 0;
+                ptr.offset = std::numeric_limits<uint64_t>::max();
+                ptr.file_id = 0;
+                active_->put(e.key, ptr);
+                continue;
+            }
+
             VLogPointer ptr;
             if (!vlog_->append(e.value, ptr)) {
                 std::cerr << "[KVStore] ERROR: vlog append failed during recovery\n";
@@ -225,8 +288,8 @@ void KVStore::recover() {
 
     std::cout << "[KVStore] Recovered " << total_entries << " entries from "
               << wal_files.size() << " WAL(s)";
-    if (!sstables_.empty())
-        std::cout << ", loaded " << sstables_.size() << " SSTables";
+    if (!l0_sstables_.empty() || !l1_sstables_.empty())
+        std::cout << ", loaded " << (l0_sstables_.size() + l1_sstables_.size()) << " SSTables";
     if (any_tainted)
         std::cout << " (WAL TAINTED)";
     std::cout << "\n";
@@ -235,29 +298,39 @@ void KVStore::recover() {
 // ── SSTable loading ────────────────────────────────────────────
 
 void KVStore::load_sstables() {
-    sstables_.clear();
+    l0_sstables_.clear();
+    l1_sstables_.clear();
     if (!std::filesystem::exists(data_dir_)) return;
 
-    for (const auto& entry : std::filesystem::directory_iterator(data_dir_)) {
-        auto name = entry.path().filename().string();
-        if (name.size() > 4 && name.substr(0, 4) == "sst_" &&
-            name.substr(name.size() - 4) == ".sst") {
-            SSTableReader reader;
-            if (reader.load(entry.path().string())) {
-                sstables_.push_back(std::move(reader));
-            } else {
-                std::cerr << "[KVStore] WARNING: discarding invalid SSTable: "
-                          << name << "\n";
-                std::filesystem::remove(entry.path());
-            }
+    if (!manifest_.load(manifest_path())) {
+        manifest_.version = 0;
+        return; // No manifest yet
+    }
+
+    // Load L0 files. Reverse order since l0_seqs are appended in flush (oldest first).
+    // The vector l0_sstables_ must be newest-first for correct reading.
+    for (auto it = manifest_.l0_seqs.rbegin(); it != manifest_.l0_seqs.rend(); ++it) {
+        SSTableReader reader;
+        if (reader.load(sst_path(*it))) {
+            l0_sstables_.push_back(std::move(reader));
+        } else {
+            std::cerr << "[KVStore] WARNING: Manifest invalid L0 SSTable " << *it << "\n";
         }
     }
 
-    // Sort newest-first (descending sequence number).
-    std::sort(sstables_.begin(), sstables_.end(),
-              [](const SSTableReader& a, const SSTableReader& b) {
-                  return a.sequence() > b.sequence();
-              });
+    // Load L1 files.
+    for (uint32_t seq : manifest_.l1_seqs) {
+        SSTableReader reader;
+        if (reader.load(sst_path(seq))) {
+            l1_sstables_.push_back(std::move(reader));
+        } else {
+            std::cerr << "[KVStore] WARNING: Manifest invalid L1 SSTable " << seq << "\n";
+        }
+    }
+}
+
+void KVStore::compact_l0_to_l1() {
+    run_compaction(this);
 }
 
 // ── Diagnostics ────────────────────────────────────────────────
@@ -271,3 +344,5 @@ size_t KVStore::memtable_size() const {
 bool KVStore::wal_tainted() const {
     return wal_ && wal_->is_tainted();
 }
+
+// partial state 9418
