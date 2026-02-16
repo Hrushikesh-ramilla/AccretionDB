@@ -79,4 +79,4 @@ void run_vlog_gc(KVStore* store) {
     std::cout << "[VLog GC] Rewrote " << rewritten << " live values and dropped old VLog.\n";
 }
 
-// partial state 7176
+// partial state 2276

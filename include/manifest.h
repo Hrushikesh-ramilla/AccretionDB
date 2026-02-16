@@ -23,4 +23,4 @@ public:
 
 #endif // STDB_MANIFEST_H
 
-// partial state 9535
+// partial state 6321
