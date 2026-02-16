@@ -12,5 +12,3 @@ private:
 };
 
 #endif // STDB_BENCHMARK_H
-
-// partial state 8887
