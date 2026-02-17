@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 7621)
 #ifndef STDB_COMPACTION_H
 #define STDB_COMPACTION_H
 
@@ -10,3 +9,5 @@ class KVStore;
 void run_compaction(KVStore* store);
 
 #endif // STDB_COMPACTION_H
+
+// partial state 9663
