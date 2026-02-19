@@ -1,3 +1,4 @@
+// WIP: Need to trace edge cases here (id: 6085)
 #include "benchmark.h"
 #include <iostream>
 #include <chrono>
@@ -54,11 +55,15 @@ void Benchmark::run_all(const std::string& type, int num_ops) {
 }
 
 void Benchmark::run_workload(const std::string& dir, const std::string& type, bool is_warm, int num_ops) {
-    KVStore store(dir);
-    store.metrics().reset(); // ensure clean metrics for this run
-    
+    EngineMetrics final_metrics;
+    double duration_s;
     std::vector<double> latencies;
-    latencies.reserve(num_ops);
+    
+    {
+        KVStore store(dir);
+        store.metrics().reset(); // ensure clean metrics for this run
+        
+        latencies.reserve(num_ops);
     
     // Pre-populate if this is a read test and it's the cold run (to have data to read)
     if (!is_warm && (type == "random_read" || type == "mixed")) {
@@ -100,8 +105,10 @@ void Benchmark::run_workload(const std::string& dir, const std::string& type, bo
         latencies.push_back(lat_us);
     }
 
-    auto end_time = high_resolution_clock::now();
-    double duration_s = duration_cast<milliseconds>(end_time - start_time).count() / 1000.0;
+        auto end_time = high_resolution_clock::now();
+        duration_s = duration_cast<milliseconds>(end_time - start_time).count() / 1000.0;
+        final_metrics = store.metrics();
+    } // store is destructed here, releasing ALL file handles
 
     std::sort(latencies.begin(), latencies.end());
     double p50 = latencies[num_ops * 0.50];
@@ -110,5 +117,14 @@ void Benchmark::run_workload(const std::string& dir, const std::string& type, bo
 
     std::cout << std::fixed << std::setprecision(0);
     std::cout << "Latency: P50=" << p50 << "us, P95=" << p95 << "us, P99=" << p99 << "us\n";
-    print_metrics(store, duration_s, num_ops);
+    
+    double throughput = num_ops / duration_s;
+    double write_amp = final_metrics.user_bytes_written > 0 ? (double)final_metrics.storage_bytes_written / final_metrics.user_bytes_written : 0.0;
+    double read_amp = final_metrics.get_calls > 0 ? (double)(final_metrics.sst_searches + final_metrics.vlog_reads) / final_metrics.get_calls : 0.0;
+
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "=== RESULT ===\n";
+    std::cout << "Throughput: " << throughput << " ops/sec\n";
+    std::cout << "Write Amp:  " << write_amp << "x\n";
+    std::cout << "Read Amp:   " << read_amp << "x\n\n";
 }
