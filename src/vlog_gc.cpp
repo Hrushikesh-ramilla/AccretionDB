@@ -1,3 +1,4 @@
+// WIP: Need to trace edge cases here (id: 2525)
 #include "vlog_gc.h"
 #include "kvstore.h"
 
@@ -65,6 +66,8 @@ void run_vlog_gc(KVStore* store) {
         if (old_vlog_reader->read_at(ptr, value)) {
             // standard LSM write path overrides naturally
             store->put(key, value);
+            // GC internal put should not artificially inflate user structural bytes
+            store->subtract_user_bytes(key.size() + value.size());
             rewritten++;
         } else {
             std::cerr << "[VLog GC] WARNING: failed to read live pointer for key " << key << "\n";
