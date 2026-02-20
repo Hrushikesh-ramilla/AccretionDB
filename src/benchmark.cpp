@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 7471)
 #include "benchmark.h"
 #include <iostream>
 #include <chrono>
