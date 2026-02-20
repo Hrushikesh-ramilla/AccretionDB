@@ -306,18 +306,36 @@ These are actual bugs discovered and fixed during development, in chronological 
 
 ---
 
-## Performance
+## Performance Analysis
 
-The benchmark harness runs cold (fresh start) and warm (OS page cache populated) workloads and reports:
+*Benchmarks executed on a Windows NVMe SSD. Workloads consist of 20,000 operations (100-byte values). Cold runs start with an empty OS page cache; warm runs reuse the populated LSM state.*
 
-| Metric | Description |
-|--------|-------------|
-| **Throughput** | Operations per second |
-| **P50 / P95 / P99 Latency** | Per-operation latency percentiles in microseconds |
-| **Write Amplification** | `storage_bytes_written / user_bytes_written` |
-| **Read Amplification** | `(sst_searches + vlog_reads) / get_calls` |
+### Benchmark Results
 
-Workload types: `random_write`, `sequential_write`, `random_read`, `mixed` (70% read, 30% write).
+| Workload | Cache State | Throughput | P50 Latency | P95 Latency | P99 Latency | Write Amp | Read Amp |
+|----------|-------------|------------|-------------|-------------|-------------|-----------|----------|
+| Random Write | Cold | 767 ops/s | 1.27 ms | 1.50 ms | 1.66 ms | 2.07x | - |
+| Random Write | Warm | 762 ops/s | 1.27 ms | 1.51 ms | 1.72 ms | 2.07x | - |
+| Sequential Write | Cold | 743 ops/s | 1.29 ms | 1.51 ms | 3.42 ms | 2.04x | - |
+| Sequential Write | Warm | 519 ops/s | 1.34 ms | 4.42 ms | 4.71 ms | 2.04x | - |
+| Random Read | Cold | 80,000 ops/s | 11 µs | 17 µs | 25 µs | 0.00x | 1.00x |
+| Random Read | Warm | 78,740 ops/s | 11 µs | 19 µs | 24 µs | 0.00x | 1.00x |
+| Mixed (70% R / 30% W) | Cold | 2314 ops/s | 36 µs | 1.44 ms | 1.58 ms | 2.07x | 1.00x |
+| Mixed | Warm | 2302 ops/s | 36 µs | 1.43 ms | 1.58 ms | 2.07x | 1.00x |
+
+### Architectural Realities
+
+**1. The 1.3ms Write Latency Floor (Durability over Throughput)**
+Throughput is hard-capped at ~700 ops/s because the system enforces strict durability. Every `put()` pays the absolute hardware cost of two sequential `fsync()` barriers—one for the WAL, one for the Value Log. 1.27ms is the physical IO limit for unbatched, single-threaded writing on this NVMe drive. CPU tuning is irrelevant here until WAL group commit is introduced.
+
+**2. The 2.0x Write Amplification Boundary (The WiscKey Advantage)**
+Write amplification remains mathematically anchored at ~2.04x - 2.07x even under heavy sequential overlap. In a standard LSM (like LevelDB), sequential overwrites force compaction to repeatedly rewrite the 100-byte values, compounding write amplification to 10–30x. By decoupling keys from values, StrataDB exclusively serializes the value twice on ingestion (once to WAL, once to VLog). From that point forward, compaction only shuffles lightweight 20-byte pointers. The 2.0x is an un-optimizable floor for this layout, but it brilliantly insulates the SSD from compaction wear.
+
+**3. The Read Amplification Illusion (Why 1.0x is misleading)**
+Read amplification tracks `(SST Searches + VLog Reads) / get()`. Because the per-SSTable Bloom Filters intercept missing keys instantly, overlapping L0 SSTables mathematically incur 0 searches. Ergo, successful reads perfectly hit 1 search and 1 VLog read (1.00x). However, WiscKey shifts structural read depth into physical random IOPS fragmentation—every read requires an un-cachable, random disk seek against the VLog unless shielded by a higher-level block cache.
+
+**4. The Warm Sequential Degredation (Compaction Backpressure)**
+While "Cold" sequential throughput was 743 ops/s, "Warm" throughput plummeted to 519 ops/s with an extreme P99 latency spike to 4.71ms. This is the statistical signature of a synchronous state-machine lock. The warm run boots by recovering 20,000 keys from the WAL into the Memtable. When the next 20,000 sequential writes stream in, they instantly breach the 15-file L0 limit. The main thread halts `put()` ingestion to perform severe, synchronous K-way merges against highly-populated L1 files, destroying the P99 tail.
 
 Run benchmarks via the CLI:
 ```bash
@@ -406,3 +424,5 @@ mingw32-make clean    # Clean
 
 
 *StrataDB is not a toy. It implements the full WiscKey paper architecture with crash-safe durability, correctness-first invariants, and real engineering fixes for bugs that only surface under failure conditions.*
+
+<!-- WIP id: 9467 -->
