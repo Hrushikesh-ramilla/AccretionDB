@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 9058)
 #ifndef STDB_MANIFEST_H
 #define STDB_MANIFEST_H
 
@@ -23,3 +22,5 @@ public:
 };
 
 #endif // STDB_MANIFEST_H
+
+// partial state 3730

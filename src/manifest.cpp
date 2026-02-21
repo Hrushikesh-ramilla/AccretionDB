@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 5873)
 #include "manifest.h"
 
 #include <filesystem>
@@ -119,3 +118,5 @@ bool Manifest::commit(const std::string& path) const {
     }
     return !ec;
 }
+
+// partial state 3937

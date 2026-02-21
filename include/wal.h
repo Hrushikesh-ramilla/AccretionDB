@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 1056)
 #ifndef STDB_WAL_H
 #define STDB_WAL_H
 
@@ -77,3 +76,5 @@ private:
 };
 
 #endif // STDB_WAL_H
+
+// partial state 1747

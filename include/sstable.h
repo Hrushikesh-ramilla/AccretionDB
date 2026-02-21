@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 9262)
 #ifndef STDB_SSTABLE_H
 #define STDB_SSTABLE_H
 
@@ -62,3 +61,5 @@ private:
 };
 
 #endif // STDB_SSTABLE_H
+
+// partial state 8495
