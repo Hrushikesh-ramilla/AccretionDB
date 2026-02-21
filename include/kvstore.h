@@ -1,3 +1,4 @@
+// WIP: Need to trace edge cases here (id: 8482)
 #ifndef STDB_KVSTORE_H
 #define STDB_KVSTORE_H
 
@@ -77,5 +78,3 @@ private:
 };
 
 #endif // STDB_KVSTORE_H
-
-// partial state 1765

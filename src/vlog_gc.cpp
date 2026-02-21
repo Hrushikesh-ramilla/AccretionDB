@@ -1,3 +1,4 @@
+// WIP: Need to trace edge cases here (id: 4243)
 #include "vlog_gc.h"
 #include "kvstore.h"
 
@@ -78,5 +79,3 @@ void run_vlog_gc(KVStore* store) {
     std::filesystem::remove(old_vlog_path);
     std::cout << "[VLog GC] Rewrote " << rewritten << " live values and dropped old VLog.\n";
 }
-
-// partial state 2276

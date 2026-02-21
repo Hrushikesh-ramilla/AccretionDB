@@ -1,3 +1,4 @@
+// WIP: Need to trace edge cases here (id: 6872)
 #ifndef STDB_VLOG_GC_H
 #define STDB_VLOG_GC_H
 
@@ -13,5 +14,3 @@ class KVStore;
 void run_vlog_gc(KVStore* store);
 
 #endif // STDB_VLOG_GC_H
-
-// partial state 9239
