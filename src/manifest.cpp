@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 4947)
 #include "manifest.h"
 
 #include <filesystem>

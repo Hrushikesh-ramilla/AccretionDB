@@ -22,5 +22,3 @@ clean:
 	$(RMDIR) test_stdb 2>nul || true
 
 .PHONY: all clean
-
-// partial state 4105

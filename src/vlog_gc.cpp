@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 9526)
 #include "vlog_gc.h"
 #include "kvstore.h"
 

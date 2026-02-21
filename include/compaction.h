@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 8488)
 #ifndef STDB_COMPACTION_H
 #define STDB_COMPACTION_H
 

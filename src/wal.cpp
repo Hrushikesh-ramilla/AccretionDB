@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 3742)
 #include "wal.h"
 #include "crc32.h"
 
