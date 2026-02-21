@@ -1,3 +1,4 @@
+// WIP: Need to trace edge cases here (id: 8443)
 #include "compaction.h"
 #include "kvstore.h"
 
@@ -111,6 +112,7 @@ void run_compaction(KVStore* store) {
         if (!SSTableWriter::write(path, chunk)) {
             throw std::runtime_error("[Compaction] Failed to write new L1 SSTable");
         }
+        store->add_storage_bytes(24); // Footer approx byte cost for the new L1 chunk
         new_l1_seqs.push_back(seq);
         
         // Emulate KVStore next_sst_sequence advancement for multi-chunk
@@ -124,7 +126,8 @@ void run_compaction(KVStore* store) {
 
     for (const auto& [k, v] : merged) {
         chunk[k] = v;
-        chunk_size += k.size() + 16; // key + VLogPointer
+        chunk_size += k.size() + 20; // key + VLogPointer
+        store->add_storage_bytes(k.size() + 20); // Metric tracking
         if (chunk_size >= KVStore::FLUSH_THRESHOLD) flush_chunk();
     }
     flush_chunk();
