@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 7403)
 #include "kvstore.h"
 
 #include <algorithm>

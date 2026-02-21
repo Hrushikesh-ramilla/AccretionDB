@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 1569)
 #include "vlog.h"
 
 #include <cerrno>

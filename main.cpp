@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 5898)
 // Phase 1 + Phase 2 — Full Test Runner.
 
 #include "kvstore.h"
