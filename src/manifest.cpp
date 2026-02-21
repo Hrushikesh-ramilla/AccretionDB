@@ -119,4 +119,4 @@ bool Manifest::commit(const std::string& path) const {
     return !ec;
 }
 
-// partial state 1054
+// partial state 2006

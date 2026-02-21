@@ -77,4 +77,4 @@ private:
 
 #endif // STDB_WAL_H
 
-// partial state 8654
+// partial state 7196

@@ -78,4 +78,4 @@ private:
 
 #endif // STDB_KVSTORE_H
 
-// partial state 1987
+// partial state 1765
