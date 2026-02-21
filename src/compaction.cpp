@@ -1,3 +1,4 @@
+// WIP: Need to trace edge cases here (id: 4277)
 #include "compaction.h"
 #include "kvstore.h"
 
@@ -150,5 +151,3 @@ void run_compaction(KVStore* store) {
     // 9. Reload state so read path sees the new manifest state correctly.
     store->load_sstables();
 }
-
-// partial state 1371

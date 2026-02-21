@@ -1,3 +1,4 @@
+// WIP: Need to trace edge cases here (id: 8723)
 #include "wal.h"
 #include "crc32.h"
 
@@ -206,5 +207,3 @@ ReplayResult WAL::replay() const {
 
     return result;
 }
-
-// partial state 4761

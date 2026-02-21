@@ -23,4 +23,4 @@ clean:
 
 .PHONY: all clean
 
-// partial state 2541
+// partial state 1249
