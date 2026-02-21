@@ -9,6 +9,7 @@
 struct WALEntry {
     std::string key;
     std::string value;
+    bool is_tombstone = false;
 };
 
 // Result of a WAL replay operation.
@@ -21,7 +22,7 @@ struct ReplayResult {
 //
 // Record format (binary, little-endian, no padding):
 //   [uint32_t key_size]
-//   [uint32_t value_size]
+//   [uint32_t value_size]  — NOTE: 0xFFFFFFFF explicitly indicates a TOMBSTONE (delete marker).
 //   [uint32_t checksum]    — CRC32 over (key_size, value_size, key, value)
 //   [key_size bytes]       — key
 //   [value_size bytes]     — value
@@ -50,6 +51,9 @@ public:
     // Returns false on I/O error (caller must NOT proceed to memtable).
     bool append(const std::string& key, const std::string& value);
 
+    // Append a tombstone record.
+    bool append_delete(const std::string& key);
+
     // Flush to stable storage (fdatasync / platform equivalent).
     // Returns false if fsync fails (caller must NOT proceed to memtable).
     bool sync();
@@ -72,3 +76,5 @@ private:
 };
 
 #endif // STDB_WAL_H
+
+// partial state 8654

@@ -42,6 +42,18 @@ public:
     uint32_t sequence() const { return sequence_; }
     const std::string& path() const { return path_; }
 
+    // Range metadata (assuming entries are sorted).
+    const std::string& min_key() const { return entries_.front().key; }
+    const std::string& max_key() const { return entries_.back().key; }
+
+    // Returns true if this table's key range overlaps with [min_k, max_k].
+    bool overlaps(const std::string& min_k, const std::string& max_k) const {
+        if (entries_.empty()) return false;
+        return !(max_key() < min_k || min_key() > max_k);
+    }
+
+    const std::vector<SSTableEntry>& entries() const { return entries_; }
+
 private:
     std::string              path_;
     uint32_t                 sequence_ = 0;
@@ -49,3 +61,5 @@ private:
 };
 
 #endif // STDB_SSTABLE_H
+
+// partial state 5571
