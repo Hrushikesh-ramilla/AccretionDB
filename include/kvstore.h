@@ -1,3 +1,4 @@
+// WIP: Need to trace edge cases here (id: 8697)
 #ifndef STDB_KVSTORE_H
 #define STDB_KVSTORE_H
 
@@ -22,12 +23,18 @@ struct EngineMetrics {
     uint64_t user_bytes_written = 0;
     uint64_t storage_bytes_written = 0;
     uint64_t get_calls = 0;
+    uint64_t sst_considered = 0;
+    uint64_t bloom_skips = 0;
+    uint64_t sst_searches = 0;
     uint64_t vlog_reads = 0;
 
     void reset() {
         user_bytes_written = 0;
         storage_bytes_written = 0;
         get_calls = 0;
+        sst_considered = 0;
+        bloom_skips = 0;
+        sst_searches = 0;
         vlog_reads = 0;
     }
 };
@@ -63,7 +70,9 @@ public:
     void add_storage_bytes(uint64_t bytes) { metrics_.storage_bytes_written += bytes; }
     void add_user_bytes(uint64_t bytes) { metrics_.user_bytes_written += bytes; }
     void subtract_user_bytes(uint64_t bytes) { metrics_.user_bytes_written -= bytes; }
-
+    
+    // Test helper to explicitly disable bloom filter and evaluate invariant equivalence
+    void bypass_bloom(bool bypass) { disable_bloom_ = bypass; }
 
 private:
     void     recover();
@@ -91,7 +100,7 @@ private:
     std::vector<SSTableReader>   l0_sstables_; // sorted newest-first
     std::vector<SSTableReader>   l1_sstables_; // non-overlapping
     uint32_t                     current_wal_id_ = 1;
-
+    bool                         disable_bloom_ = false;
 
     static constexpr size_t FLUSH_THRESHOLD = 4u * 1024u * 1024u;  // 4 MiB
     static constexpr size_t L0_HARD_LIMIT   = 15;
