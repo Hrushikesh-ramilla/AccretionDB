@@ -88,6 +88,11 @@ void KVStore::put(const std::string& key, const std::string& value) {
     maybe_flush();
 
     // Step 1: WAL append (full key + value).
+    // Write Amp Metric additions
+    metrics_.user_bytes_written += key.size() + value.size();
+    metrics_.storage_bytes_written += 12 + key.size() + value.size(); // WAL struct overhead
+    metrics_.storage_bytes_written += 4 + value.size();               // VLog overhead
+
     if (!wal_->append(key, value))
         throw std::runtime_error("[KVStore] WAL append failed");
 
@@ -111,17 +116,20 @@ void KVStore::put(const std::string& key, const std::string& value) {
 // ── Read path ──────────────────────────────────────────────────
 
 bool KVStore::get(const std::string& key, std::string& out_value) const {
+    metrics_.get_calls++;
     VLogPointer ptr;
 
     // 1. Active memtable.
     if (active_ && active_->get(key, ptr)) {
         if (is_tombstone(ptr)) return false;
+        metrics_.vlog_reads++;
         return vlog_->read_at(ptr, out_value);
     }
 
     // 2. Immutable memtable (exists during flush).
     if (immutable_ && immutable_->get(key, ptr)) {
         if (is_tombstone(ptr)) return false;
+        metrics_.vlog_reads++;
         return vlog_->read_at(ptr, out_value);
     }
 
@@ -129,6 +137,7 @@ bool KVStore::get(const std::string& key, std::string& out_value) const {
     for (const auto& sst : l0_sstables_) {
         if (sst.get(key, ptr)) {
             if (is_tombstone(ptr)) return false;
+            metrics_.vlog_reads++;
             return vlog_->read_at(ptr, out_value);
         }
     }
@@ -139,6 +148,7 @@ bool KVStore::get(const std::string& key, std::string& out_value) const {
         if (sst.overlaps(key, key)) {
             if (sst.get(key, ptr)) {
                 if (is_tombstone(ptr)) return false;
+                metrics_.vlog_reads++;
                 return vlog_->read_at(ptr, out_value);
             }
         }
@@ -171,6 +181,11 @@ void KVStore::flush() {
     // 2. Write SSTable from immutable memtable.
     uint32_t seq = next_sst_sequence();
     std::string path = sst_path(seq);
+
+    // Track write amplification for SST flush
+    size_t sst_est = 24; // footer approx
+    for (const auto& [k,v] : immutable_->entries()) sst_est += 20 + k.size();
+    add_storage_bytes(sst_est);
 
     if (!SSTableWriter::write(path, immutable_->entries()))
         throw std::runtime_error("[KVStore] SSTable flush failed");
@@ -344,3 +359,5 @@ size_t KVStore::memtable_size() const {
 bool KVStore::wal_tainted() const {
     return wal_ && wal_->is_tainted();
 }
+
+// partial state 5096
