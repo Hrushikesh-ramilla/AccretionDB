@@ -1,7 +1,9 @@
+// WIP: Need to trace edge cases here (id: 8703)
 #ifndef STDB_SSTABLE_H
 #define STDB_SSTABLE_H
 
 #include "vlog.h"
+#include "bloom.h"
 #include <cstdint>
 #include <map>
 #include <string>
@@ -15,9 +17,10 @@ struct SSTableEntry {
 
 // Writes a sorted set of key-pointer pairs to an SSTable file.
 //
-// File layout:
+// File layout (STRICT):
 //   [Data Section: entries in sorted key order]
-//   [Footer: uint32_t entry_count, uint32_t checksum]
+//   [Bloom Filter Bytes]
+//   [Footer: uint32_t entry_count, uint32_t bloom_offset, uint32_t bloom_size, uint32_t checksum]
 //
 // Entry format:
 //   [uint32_t key_size][key bytes][uint32_t file_id][uint64_t offset][uint32_t length]
@@ -53,11 +56,13 @@ public:
     }
 
     const std::vector<SSTableEntry>& entries() const { return entries_; }
+    const BloomFilter& bloom() const { return bloom_; }
 
 private:
     std::string              path_;
     uint32_t                 sequence_ = 0;
     std::vector<SSTableEntry> entries_;  // sorted by key
+    BloomFilter              bloom_;
 };
 
 #endif // STDB_SSTABLE_H
