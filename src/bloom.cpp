@@ -1,3 +1,4 @@
+// WIP: Need to trace edge cases here (id: 3596)
 #include "bloom.h"
 
 #include <cmath>
@@ -219,5 +220,3 @@ bool BloomFilter::may_contain(const std::string& key) const {
     }
     return true; // May be present
 }
-
-// partial state 4898

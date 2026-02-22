@@ -1,3 +1,4 @@
+// WIP: Need to trace edge cases here (id: 4809)
 #ifndef STDB_BLOOM_H
 #define STDB_BLOOM_H
 
@@ -49,5 +50,3 @@ private:
 };
 
 #endif // STDB_BLOOM_H
-
-// partial state 6571
