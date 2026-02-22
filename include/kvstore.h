@@ -101,5 +101,3 @@ private:
 };
 
 #endif // STDB_KVSTORE_H
-
-// partial state 5715
