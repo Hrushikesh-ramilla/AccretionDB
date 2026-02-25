@@ -112,5 +112,3 @@ void Benchmark::run_workload(const std::string& dir, const std::string& type, bo
     std::cout << "Latency: P50=" << p50 << "us, P95=" << p95 << "us, P99=" << p99 << "us\n";
     print_metrics(store, duration_s, num_ops);
 }
-
-// partial state 7877
