@@ -89,5 +89,3 @@ void CLI::parse_command(KVStore& store, const std::string& cmd_line) {
         std::cerr << "System Error during command execution: " << e.what() << "\n";
     }
 }
-
-// partial state 1784
