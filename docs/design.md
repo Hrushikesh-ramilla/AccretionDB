@@ -7,7 +7,7 @@ SSD-Optimized WiscKey-style LSM Engine
 ## 1. Project Structure
 
 ```
-/stdb
+/acdb
   /include
     wal.h            — WAL class declaration + record format
     memtable.h       — Memtable class declaration
@@ -375,8 +375,8 @@ The memtable starts empty. Replayed entries are inserted in WAL order (oldest to
 All tests compiled and executed from the project root:
 
 ```
-g++ -std=c++20 -Iinclude -o stdb src/crc32.cpp src/wal.cpp src/memtable.cpp src/kvstore.cpp main.cpp
-./stdb
+g++ -std=c++20 -Iinclude -o acdb src/crc32.cpp src/wal.cpp src/memtable.cpp src/kvstore.cpp main.cpp
+./acdb
 ```
 
 Each test prints `[PASS]` or `[FAIL]` per assertion. The runner returns exit code 0 if all pass, non-zero otherwise.

@@ -55,12 +55,9 @@ HttpServer::HttpServer(KVStore& store, int port)
         throw std::runtime_error("[HttpServer] socket() failed");
 
     // SO_REUSEADDR — allows immediate rebind after restart
+#ifndef _WIN32
     int opt = 1;
-#ifdef _WIN32
-    setsockopt(server_fd_, SOL_SOCKET, SO_REUSEADDR,
-               reinterpret_cast<const char*>(&opt), sizeof(opt));
-#else
-    setsockopt(server_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    setsockopt(server_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, static_cast<socklen_t>(sizeof(opt)));
 #endif
 
     sockaddr_in addr{};
@@ -115,6 +112,17 @@ void HttpServer::run() {
             continue;
         }
 
+        // Set read timeout to prevent blocking forever on browser pre-connections
+#ifdef _WIN32
+        DWORD timeout = 1000; // 1 second
+        setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+#else
+        struct timeval tv;
+        tv.tv_sec = 1;
+        tv.tv_usec = 0;
+        setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, static_cast<socklen_t>(sizeof(tv)));
+#endif
+
         handle_client(client_fd);
         close_sock(client_fd);
     }
@@ -145,9 +153,14 @@ bool HttpServer::read_request(socket_t fd, std::string& raw) {
         auto val_start = raw.find_first_not_of(" \t", cl_pos + 15);
         auto val_end   = raw.find("\r\n", val_start);
         if (val_start != std::string::npos && val_end != std::string::npos) {
-            size_t content_len = static_cast<size_t>(
-                std::stoul(raw.substr(val_start, val_end - val_start))
-            );
+            size_t content_len = 0;
+            try {
+                content_len = static_cast<size_t>(
+                    std::stoul(raw.substr(val_start, val_end - val_start))
+                );
+            } catch (...) {
+                return false;
+            }
             auto header_end = raw.find("\r\n\r\n");
             size_t body_start = header_end + 4;
             size_t have = (body_start < raw.size()) ? raw.size() - body_start : 0;
@@ -386,7 +399,7 @@ HttpResponse HttpServer::handle_put(const HttpRequest& req) {
     std::string key   = json_get_str(req.body, "key");
     std::string value = json_get_str(req.body, "value");
     HttpResponse resp;
-    if (key.empty() || value.empty()) {
+    if (key.empty() || !json_has_key(req.body, "value")) {
         resp.status = 400;
         resp.body   = R"({"error":"key and value required"})";
         return resp;
@@ -462,11 +475,30 @@ HttpResponse HttpServer::handle_bench(const HttpRequest& req) {
     if (ops < 50)   ops = 50;
     if (ops > 2000) ops = 2000;
 
-    // Redirect stdout temporarily to capture benchmark text output
-    // Instead, we capture the result via store metrics delta
     store_.metrics().reset();
     auto t0 = std::chrono::high_resolution_clock::now();
-    Benchmark::run_all(type, static_cast<int>(ops));
+
+    std::string dummy_val(100, 'x');
+    for (int i = 0; i < ops; ++i) {
+        if (type == "random_write") {
+            store_.put("key_" + std::to_string(rand() % ops), dummy_val);
+        } else if (type == "sequential_write") {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "seq_%08d", i);
+            store_.put(buf, dummy_val);
+        } else if (type == "random_read") {
+            std::string val;
+            store_.get("key_" + std::to_string(rand() % ops), val);
+        } else if (type == "mixed") {
+            if (rand() % 100 < 70) {
+                std::string val;
+                store_.get("key_" + std::to_string(rand() % ops), val);
+            } else {
+                store_.put("key_" + std::to_string(rand() % ops), dummy_val);
+            }
+        }
+    }
+
     auto t1 = std::chrono::high_resolution_clock::now();
 
     double elapsed_s = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count() / 1000.0;
@@ -531,6 +563,10 @@ std::string HttpServer::json_bool(const std::string& key, bool val, bool last) {
     return "  \"" + key + "\": " + (val ? "true" : "false") + (last ? "\n" : ",\n");
 }
 
+bool HttpServer::json_has_key(const std::string& json, const std::string& key) {
+    return json.find("\"" + key + "\"") != std::string::npos;
+}
+
 // Minimal flat JSON string extractor — finds "key": "value" or "key":"value"
 std::string HttpServer::json_get_str(const std::string& json, const std::string& key) {
     std::string needle = "\"" + key + "\"";
@@ -556,6 +592,30 @@ std::string HttpServer::json_get_str(const std::string& json, const std::string&
             if (next == '"')  { val += '"';  pos += 2; continue; }
             if (next == '\\') { val += '\\'; pos += 2; continue; }
             if (next == 'n')  { val += '\n'; pos += 2; continue; }
+            if (next == 'r')  { val += '\r'; pos += 2; continue; }
+            if (next == 't')  { val += '\t'; pos += 2; continue; }
+            if (next == 'b')  { val += '\b'; pos += 2; continue; }
+            if (next == 'f')  { val += '\f'; pos += 2; continue; }
+            if (next == 'u' && pos + 5 < json.size()) {
+                std::string hex = json.substr(pos + 2, 4);
+                try {
+                    int cp = std::stoi(hex, nullptr, 16);
+                    if (cp <= 0x7F) {
+                        val += static_cast<char>(cp);
+                    } else if (cp <= 0x7FF) {
+                        val += static_cast<char>(0xC0 | ((cp >> 6) & 0x1F));
+                        val += static_cast<char>(0x80 | (cp & 0x3F));
+                    } else {
+                        val += static_cast<char>(0xE0 | ((cp >> 12) & 0x0F));
+                        val += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+                        val += static_cast<char>(0x80 | (cp & 0x3F));
+                    }
+                    pos += 6;
+                    continue;
+                } catch (...) {
+                    // fallthrough to default if hex parsing fails
+                }
+            }
             val += next; pos += 2; continue;
         }
         if (c == '"') break;
@@ -578,7 +638,11 @@ long long HttpServer::json_get_int(const std::string& json, const std::string& k
     // Check if it looks like a number
     if (pos >= json.size() || (!std::isdigit(json[pos]) && json[pos] != '-'))
         return default_val;
-    return std::stoll(json.substr(pos));
+    try {
+        return std::stoll(json.substr(pos));
+    } catch (...) {
+        return default_val;
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────

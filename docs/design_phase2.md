@@ -445,7 +445,7 @@ The old WAL is deleted only after the new WAL is created and the SSTable is conf
 ## 8. File Structure Update
 
 ```
-/stdb
+/acdb
   /include
     crc32.h          — CRC32 checksum utility          [UNCHANGED]
     wal.h            — WAL class                        [UNCHANGED]
@@ -550,7 +550,7 @@ The old WAL is deleted only after the new WAL is created and the SSTable is conf
 ### How to Run
 
 ```
-make clean && make && ./stdb
+make clean && make && ./acdb
 ```
 
 All tests (Phase 1 + Phase 2) run sequentially. Pass criteria: all `[PASS]`, zero `[FAIL]`, exit code 0.

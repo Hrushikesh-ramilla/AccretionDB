@@ -1,5 +1,5 @@
-#ifndef STDB_KVSTORE_H
-#define STDB_KVSTORE_H
+#ifndef ACDB_KVSTORE_H
+#define ACDB_KVSTORE_H
 
 #include "wal.h"
 #include "vlog.h"
@@ -116,4 +116,4 @@ private:
     friend void run_vlog_gc(KVStore* store);
 };
 
-#endif // STDB_KVSTORE_H
+#endif // ACDB_KVSTORE_H

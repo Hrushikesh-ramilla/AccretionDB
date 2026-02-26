@@ -1,5 +1,5 @@
-#ifndef STDB_CRC32_H
-#define STDB_CRC32_H
+#ifndef ACDB_CRC32_H
+#define ACDB_CRC32_H
 
 #include <cstdint>
 #include <string>
@@ -13,4 +13,4 @@ uint32_t compute_crc32(const uint8_t* data, size_t len);
 uint32_t record_checksum(uint32_t key_size, uint32_t value_size,
                          const std::string& key, const std::string& value);
 
-#endif // STDB_CRC32_H
+#endif // ACDB_CRC32_H

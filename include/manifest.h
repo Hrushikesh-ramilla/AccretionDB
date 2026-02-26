@@ -1,5 +1,5 @@
-#ifndef STDB_MANIFEST_H
-#define STDB_MANIFEST_H
+#ifndef ACDB_MANIFEST_H
+#define ACDB_MANIFEST_H
 
 #include <cstdint>
 #include <string>
@@ -21,4 +21,4 @@ public:
     bool commit(const std::string& path) const;
 };
 
-#endif // STDB_MANIFEST_H
+#endif // ACDB_MANIFEST_H

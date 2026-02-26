@@ -1,5 +1,5 @@
-#ifndef STDB_BLOOM_H
-#define STDB_BLOOM_H
+#ifndef ACDB_BLOOM_H
+#define ACDB_BLOOM_H
 
 #include <string>
 #include <vector>
@@ -48,4 +48,4 @@ private:
     int   mmap_fd_ = -1;           // POSIX fd for mmap (if applicable)
 };
 
-#endif // STDB_BLOOM_H
+#endif // ACDB_BLOOM_H
