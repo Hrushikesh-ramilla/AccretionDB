@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -14,15 +15,17 @@
 
 // ─────────────────────────────────────────────────────────────────
 // Platform-specific recv / send wrappers
+// On UCRT/MinGW, ssize_t is already typedef'd as __int64 in corecrt.h,
+// so we only define it ourselves on platforms where it's missing.
 // ─────────────────────────────────────────────────────────────────
 #ifdef _WIN32
   #pragma comment(lib, "ws2_32.lib")
-  using ssize_t = int;
-  static inline ssize_t sock_recv(socket_t fd, char* buf, int len, int flags) {
-      return static_cast<ssize_t>(::recv(fd, buf, len, flags));
+  // MinGW UCRT already provides ssize_t as __int64 — do not redefine.
+  static inline int sock_recv(socket_t fd, char* buf, int len, int flags) {
+      return ::recv(fd, buf, len, flags);
   }
-  static inline ssize_t sock_send(socket_t fd, const char* buf, int len, int flags) {
-      return static_cast<ssize_t>(::send(fd, buf, len, flags));
+  static inline int sock_send(socket_t fd, const char* buf, int len, int flags) {
+      return ::send(fd, buf, len, flags);
   }
 #else
   static inline ssize_t sock_recv(socket_t fd, char* buf, int len, int flags) {
@@ -128,7 +131,7 @@ bool HttpServer::read_request(socket_t fd, std::string& raw) {
 
     // Phase 1: read until end-of-headers marker
     while (true) {
-        ssize_t n = sock_recv(fd, buf.data(), static_cast<int>(buf.size()) - 1, 0);
+        auto n = sock_recv(fd, buf.data(), static_cast<int>(buf.size()) - 1, 0);
         if (n <= 0) return false;
         raw.append(buf.data(), static_cast<size_t>(n));
         if (raw.find("\r\n\r\n") != std::string::npos) break;
@@ -150,7 +153,7 @@ bool HttpServer::read_request(socket_t fd, std::string& raw) {
             size_t have = (body_start < raw.size()) ? raw.size() - body_start : 0;
 
             while (have < content_len) {
-                ssize_t n = sock_recv(fd, buf.data(),
+                auto n = sock_recv(fd, buf.data(),
                     static_cast<int>(std::min(buf.size() - 1, content_len - have)), 0);
                 if (n <= 0) break;
                 raw.append(buf.data(), static_cast<size_t>(n));

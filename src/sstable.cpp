@@ -87,7 +87,7 @@ bool SSTableReader::load(const std::string& path) {
     if (file_size < 16) return false;   // too small for footer
 
     // Read footer (last 16 bytes).
-    in.seekg(file_size - 16, std::ios::beg);
+    in.seekg(static_cast<std::streamoff>(file_size) - 16, std::ios::beg);
     uint32_t footer[4];
     in.read(reinterpret_cast<char*>(footer), 16);
     if (!in.good()) return false;
@@ -99,7 +99,7 @@ bool SSTableReader::load(const std::string& path) {
 
     if (entry_count == 0) return false;
 
-    size_t payload_size = file_size - 16;
+    size_t payload_size = static_cast<size_t>(static_cast<std::streamoff>(file_size) - 16);
     std::vector<uint8_t> buf(payload_size);
     in.seekg(0, std::ios::beg);
     in.read(reinterpret_cast<char*>(buf.data()), payload_size);

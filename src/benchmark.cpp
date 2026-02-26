@@ -23,18 +23,7 @@ static std::string random_string(size_t length) {
     return str;
 }
 
-static void print_metrics(const KVStore& store, double duration_s, size_t ops) {
-    const auto& m = store.metrics();
-    double throughput = ops / duration_s;
-    double write_amp = m.user_bytes_written > 0 ? (double)m.storage_bytes_written / m.user_bytes_written : 0.0;
-    double read_amp = m.get_calls > 0 ? (double)(m.sst_searches + m.vlog_reads) / m.get_calls : 0.0;
 
-    std::cout << std::fixed << std::setprecision(2);
-    std::cout << "=== RESULT ===\n";
-    std::cout << "Throughput: " << throughput << " ops/sec\n";
-    std::cout << "Write Amp:  " << write_amp << "x\n";
-    std::cout << "Read Amp:   " << read_amp << "x\n\n";
-}
 
 void Benchmark::run_all(const std::string& type, int num_ops) {
     std::string bench_dir = "stdb_bench_dir";

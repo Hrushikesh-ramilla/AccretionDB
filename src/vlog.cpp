@@ -71,13 +71,13 @@ VLog::VLog(const std::string& path)
     write_fd_ = vlog_open(path_.c_str(), VLOG_APPEND_FLAGS, VLOG_MODE);
     if (write_fd_ < 0) {
         std::cerr << "[VLog] FATAL: cannot open write fd: " << path_ << "\n";
-        std::abort();
+        std::exit(1);
     }
 
     read_fd_ = vlog_open(path_.c_str(), VLOG_READ_FLAGS, 0);
     if (read_fd_ < 0) {
         std::cerr << "[VLog] FATAL: cannot open read fd: " << path_ << "\n";
-        std::abort();
+        std::exit(1);
     }
 
     // Initialize current_offset_ from file size (one-time lseek, NOT used per-append).
@@ -116,7 +116,10 @@ bool VLog::append(const std::string& value, VLogPointer& out_pointer) {
     return true;
 }
 
+extern bool g_disable_sync;
+
 bool VLog::sync() {
+    if (g_disable_sync) return true;
     if (vlog_fsync(write_fd_) != 0) {
         std::cerr << "[VLog] ERROR: fsync failed (errno=" << errno << ")\n";
         return false;
