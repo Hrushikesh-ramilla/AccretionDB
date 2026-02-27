@@ -406,5 +406,3 @@ mingw32-make clean    # Clean
 
 
 *StrataDB is not a toy. It implements the full WiscKey paper architecture with crash-safe durability, correctness-first invariants, and real engineering fixes for bugs that only surface under failure conditions.*
-
-<!-- WIP id: 4824 -->
