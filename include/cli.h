@@ -11,5 +11,3 @@ public:
 };
 
 #endif // STDB_CLI_H
-
-// partial state 4812
