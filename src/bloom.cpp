@@ -1,4 +1,3 @@
-// WIP: Need to trace edge cases here (id: 3596)
 #include "bloom.h"
 
 #include <cmath>
