@@ -2,24 +2,41 @@
 #define ACDB_MEMTABLE_H
 
 #include "vlog.h"
-#include <map>
-#include <string>
+#include "arena.h"
+#include "skiplist.h"
+#include <string_view>
 #include <cstddef>
+#include <memory>
 
-// Ordered in-memory key → VLogPointer store backed by std::map.
+// Ordered in-memory key → VLogPointer store backed by a lock-free SkipList
+// and a monotonic Arena allocator. 
+// This replaces the naive std::map, eliminating heap fragmentation and 
+// ensuring high cache locality and high concurrent read throughput.
 class Memtable {
 public:
-    void put(const std::string& key, const VLogPointer& pointer);
-    bool get(const std::string& key, VLogPointer& out_pointer) const;
+    Memtable();
+    ~Memtable();
 
-    size_t size() const;
-    size_t byte_size() const;   // approximate bytes for flush threshold
+    // Disable copy/move to pin internal memory.
+    Memtable(const Memtable&) = delete;
+    Memtable& operator=(const Memtable&) = delete;
 
-    const std::map<std::string, VLogPointer>& entries() const { return table_; }
+    void put(std::string_view key, const VLogPointer& pointer);
+    bool get(std::string_view key, VLogPointer& out_pointer) const;
+
+    // We no longer track exact entry count as it requires atomic counters
+    // that bottleneck the fast path. Use byte_size() for flush thresholds.
+    // size_t size() const; // Removed
+
+    size_t byte_size() const;   // Exact bytes consumed from Arena.
+
+    // Provides forward-only lock-free iteration.
+    using Iterator = acdb::ConcurrentSkipList::Iterator;
+    Iterator begin() const;
 
 private:
-    std::map<std::string, VLogPointer> table_;
-    size_t byte_size_ = 0;
+    std::unique_ptr<acdb::Arena> arena_;
+    std::unique_ptr<acdb::ConcurrentSkipList> table_;
 };
 
 #endif // ACDB_MEMTABLE_H
