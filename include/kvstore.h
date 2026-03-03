@@ -69,6 +69,14 @@ public:
     void add_storage_bytes(uint64_t bytes) { metrics_.storage_bytes_written += bytes; }
     void add_user_bytes(uint64_t bytes) { metrics_.user_bytes_written += bytes; }
     void subtract_user_bytes(uint64_t bytes) { metrics_.user_bytes_written -= bytes; }
+
+    // ── Observability accessors (used by HttpServer) ──────────────
+    size_t l0_count()            const { return l0_sstables_.size(); }
+    size_t l1_count()            const { return l1_sstables_.size(); }
+    size_t active_byte_size()    const { return active_ ? active_->byte_size() : 0; }
+    size_t memtable_entries()    const { return active_ ? active_->size() : 0; }
+    size_t flush_threshold_bytes() const { return FLUSH_THRESHOLD; }
+    size_t l0_hard_limit()       const { return L0_HARD_LIMIT; }
     
     // Test helper to explicitly disable bloom filter and evaluate invariant equivalence
     void bypass_bloom(bool bypass) { disable_bloom_ = bypass; }
