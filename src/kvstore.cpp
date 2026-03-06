@@ -254,7 +254,11 @@ void KVStore::rotate_wal() {
     current_wal_id_ = new_id;
 
     // 3. NOW safe to delete old WAL (new WAL is durable).
-    std::filesystem::remove(old_wp);
+    std::error_code ec;
+    std::filesystem::remove(old_wp, ec);
+    if (ec) {
+        std::cerr << "[KVStore] WARNING: could not delete old WAL " << old_wp << ": " << ec.message() << "\n";
+    }
 }
 
 // ── Recovery ───────────────────────────────────────────────────
@@ -272,8 +276,10 @@ void KVStore::recover() {
     //   If SSTables exist → keep vlog (SST pointers reference it).
     //   If no SSTables    → safe to recreate vlog from WAL.
     auto vp = vlog_path();
-    if (l0_sstables_.empty() && l1_sstables_.empty())
-        std::filesystem::remove(vp);
+    if (l0_sstables_.empty() && l1_sstables_.empty()) {
+        std::error_code ec;
+        std::filesystem::remove(vp, ec);
+    }
 
     vlog_ = std::make_unique<VLog>(vp);
 

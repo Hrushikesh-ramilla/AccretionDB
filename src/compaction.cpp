@@ -146,8 +146,9 @@ void run_compaction(KVStore* store) {
               << new_l1_seqs.size() << " new L1 files.\n";
 
     // 8. Safely delete old compacted files from disk.
-    for (uint32_t seq : l0_inputs) std::filesystem::remove(store->sst_path(seq));
-    for (uint32_t seq : l1_inputs) std::filesystem::remove(store->sst_path(seq));
+    std::error_code ec;
+    for (uint32_t seq : l0_inputs) std::filesystem::remove(store->sst_path(seq), ec);
+    for (uint32_t seq : l1_inputs) std::filesystem::remove(store->sst_path(seq), ec);
 
     // 9. Reload state so read path sees the new manifest state correctly.
     store->load_sstables();
