@@ -6,7 +6,122 @@ StrataDB separates keys from values at the storage layer — keys live in a sort
 
 The engine is crash-safe, fully durable, and implements multi-level compaction, LSM-driven garbage collection, per-SSTable Bloom Filters with `mmap` support, and a built-in benchmarking harness with latency percentile tracking.
 
+[![CI](https://github.com/ramilvm/stratadb/actions/workflows/ci.yml/badge.svg)](https://github.com/ramilvm/stratadb/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-26%20passing-brightgreen)](#testing)
+[![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)](#build)
+[![Docker](https://img.shields.io/badge/docker-ready-blue)](#deployment)
+
 ---
+
+## Engine Introspector Dashboard
+
+StrataDB ships with a **real-time observability dashboard** — the same class of operational tooling that production storage engines like RocksDB and TiKV expose. The dashboard is implemented as a minimal HTTP server built on raw POSIX/Winsock2 sockets (~300 lines of C++, zero external dependencies) and served from the same binary as the engine.
+
+<p align="center">
+  <img src="assets/dashboard_preview.png" alt="StrataDB Engine Introspector Dashboard" width="800"/>
+</p>
+
+### What the Dashboard Shows
+
+| Panel | Data |
+|-------|------|
+| **Write Amplification Gauge** | Real-time ratio of storage bytes written to user bytes written. Bounded at ~2.0× by the WiscKey key-value separation architecture. |
+| **Read Amplification Gauge** | `(SST binary searches + VLog reads) / get() calls`. Bloom filters drive this toward 1.0×. |
+| **LSM Tree Visualization** | Live count of Memtable entries, L0 SSTable files, L1 SSTable files, compaction pressure %, and flush proximity bar. |
+| **Bloom Filter Detail** | SSTables considered, bloom skips, actual binary searches executed, and skip rate percentage. |
+| **Engine Health** | WAL taint status, memtable fill %, L0 compaction pressure, and overall health indicator. |
+| **Interactive Console** | `put`, `get`, `del` commands that fire HTTP API calls and display results with live metric refresh. |
+| **Benchmark Runner** | Trigger random\_write / sequential\_write / random\_read / mixed workloads (up to 2,000 ops) and display throughput + amplification results. |
+
+### Running the Dashboard
+
+```bash
+# Build
+mingw32-make          # Windows (MinGW)
+# or
+make                  # Linux / macOS
+
+# Start the introspector dashboard
+./stdb.exe web        # Windows
+./stdb web            # Linux / macOS
+
+# Open in browser
+# http://localhost:8080
+```
+
+Optional: specify a custom port:
+```bash
+./stdb web 9090
+```
+
+### HTTP API Reference
+
+The dashboard is backed by a typed JSON API. All endpoints are directly callable with `curl`:
+
+```bash
+# Engine metrics + derived ratios
+curl http://localhost:8080/api/metrics
+
+# LSM tree state
+curl http://localhost:8080/api/lsm-state
+
+# Write a key-value pair
+curl -X POST http://localhost:8080/api/put \
+     -H "Content-Type: application/json" \
+     -d '{"key":"hello","value":"world"}'
+
+# Read a value
+curl -X POST http://localhost:8080/api/get \
+     -H "Content-Type: application/json" \
+     -d '{"key":"hello"}'
+
+# Delete (tombstone)
+curl -X POST http://localhost:8080/api/delete \
+     -H "Content-Type: application/json" \
+     -d '{"key":"hello"}'
+
+# Run a benchmark
+curl -X POST http://localhost:8080/api/bench \
+     -H "Content-Type: application/json" \
+     -d '{"type":"random_write","ops":500}'
+```
+
+---
+
+## Deployment
+
+### Docker (Recommended)
+
+```bash
+# Build the image
+docker build -t stratadb .
+
+# Run the dashboard
+docker run -p 8080:8080 stratadb
+
+# With persistent data volume
+docker run -p 8080:8080 -v stratadb_data:/app/stdb_production stratadb
+```
+
+### Docker Compose
+
+```bash
+docker compose up -d
+# Dashboard available at http://localhost:8080
+# Engine data persisted in a named volume
+```
+
+### Railway (Cloud)
+
+The repository includes a GitHub Actions workflow (`.github/workflows/ci.yml`) that automatically deploys to [Railway](https://railway.app) on every push to `main`:
+
+1. Fork the repository
+2. Create a Railway project from GitHub
+3. Add `RAILWAY_TOKEN` to your repository secrets
+4. Push to `main` — the workflow builds, tests, and deploys automatically
+
+---
+
 
 ## Why This Problem Is Hard
 
