@@ -6,6 +6,7 @@
 #include "bloom.h"
 #include "benchmark.h"
 #include "cli.h"
+#include "http_server.h"
 
 #include <cstdint>
 #include <cstring>
@@ -14,6 +15,8 @@
 #include <iostream>
 #include <string>
 #include <vector>
+
+bool g_disable_sync = false;
 
 // ── Test helpers ───────────────────────────────────────────────
 
@@ -527,7 +530,11 @@ static void test_bloom_no_false_negatives(const std::string& dir) {
             store.put("key_" + std::to_string(i), v);
         }
         // Force flush
-        for (int i = 0; i < 4000; ++i) store.put("filler_" + std::to_string(i), "v");
+        for (int i = 0; i < 4200; ++i) {
+            std::string k = "filler_" + std::to_string(i);
+            k.resize(1000, 'f');
+            store.put(k, "v");
+        }
 
         bool all_found = true;
         for (int i = 0; i < 2200; ++i) {
@@ -548,7 +555,11 @@ static void test_bloom_skip_effectiveness(const std::string& dir) {
 
     {
         KVStore store(dir);
-        for (int i = 0; i < 5000; ++i) store.put("exist_" + std::to_string(i), "v");
+        for (int i = 0; i < 5000; ++i) {
+            std::string k = "exist_" + std::to_string(i);
+            k.resize(1000, 'e');
+            store.put(k, "v");
+        }
 
         store.metrics().reset();
         for (int i = 0; i < 100; ++i) {
@@ -613,18 +624,20 @@ static void test_bloom_checksum_coverage(const std::string& dir) {
     {
         KVStore store(dir);
         for (int i=0; i<100; i++) store.put("checksum_k_"+std::to_string(i), "v");
-        for (int i=0; i<4000; i++) store.put("filler_"+std::to_string(i), "v"); // flush L0
+        for (int i=0; i<4200; i++) {
+            std::string k = "filler_"+std::to_string(i);
+            k.resize(1000, 'f');
+            store.put(k, "v");
+        }
     }
     
     // Corrupt the bloom filter directly on disk systematically over all generated components correctly successfully cleanly explicitly identically safely dynamically compactly elegantly intelligently fluently
-    bool corrupted = false;
     for (auto& p : std::filesystem::directory_iterator(dir)) {
         if (p.path().extension() == ".sst") {
             std::fstream f(p.path().string(), std::ios::in | std::ios::out | std::ios::binary);
             f.seekp(-17, std::ios::end); // 1 byte before footer (inside bloom footprint)
             f.put(0xFF);
             f.close();
-            corrupted = true;
         }
     }
 
@@ -645,7 +658,11 @@ static void test_bloom_invariant_disabling(const std::string& dir) {
     {
         KVStore store(dir);
         for (int i = 0; i < 500; ++i) store.put("inv_key_" + std::to_string(i), "val");
-        for (int i = 0; i < 4000; ++i) store.put("fill_" + std::to_string(i), "pad");
+        for (int i = 0; i < 4200; ++i) {
+            std::string k = "fill_" + std::to_string(i);
+            k.resize(1000, 'f');
+            store.put(k, "pad");
+        }
         
         bool normal_found = true;
         for (int i = 0; i < 500; ++i) { std::string v; if (!store.get("inv_key_"+std::to_string(i), v)) normal_found = false; }
@@ -661,12 +678,29 @@ static void test_bloom_invariant_disabling(const std::string& dir) {
 // ── main ───────────────────────────────────────────────────────
 
 int main(int argc, char* argv[]) {
+    std::cout << std::unitbuf;
     if (argc > 1 && std::string(argv[1]) == "cli") {
         KVStore store("stdb_production");
         CLI::run(store);
         return 0;
     }
 
+    if (argc > 1 && std::string(argv[1]) == "web") {
+        int port = 8080;
+        if (argc > 2) port = std::stoi(argv[2]);
+        std::cout << "\n";
+        std::cout << "  ╭───────────────────────────────────╮\n";
+        std::cout << "  │  StrataDB Engine Introspector       │\n";
+        std::cout << "  │  WiscKey-style LSM storage engine   │\n";
+        std::cout << "  ╰───────────────────────────────────╯\n";
+        std::cout << "\n";
+        KVStore store("stdb_production");
+        HttpServer server(store, port);
+        server.run();
+        return 0;
+    }
+
+    g_disable_sync = true;
     const std::string dir = "test_stdb";
 
     // Phase 1 tests.
