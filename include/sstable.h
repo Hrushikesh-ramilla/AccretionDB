@@ -1,5 +1,5 @@
-#ifndef STDB_SSTABLE_H
-#define STDB_SSTABLE_H
+#ifndef ACDB_SSTABLE_H
+#define ACDB_SSTABLE_H
 
 #include "vlog.h"
 #include "bloom.h"
@@ -64,4 +64,4 @@ private:
     BloomFilter              bloom_;
 };
 
-#endif // STDB_SSTABLE_H
+#endif // ACDB_SSTABLE_H

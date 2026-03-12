@@ -25,17 +25,17 @@ jobs:
       - name: Verify compiler version
         run: g++ --version
 
-      - name: Compile StrataDB
+      - name: Compile AccretionDB
         run: |
           g++ -std=c++20 -O2 -Wall -Wextra -Iinclude \
               src/crc32.cpp src/wal.cpp src/vlog.cpp src/sstable.cpp \
               src/memtable.cpp src/manifest.cpp src/compaction.cpp \
               src/vlog_gc.cpp src/bloom.cpp src/benchmark.cpp \
               src/cli.cpp src/kvstore.cpp src/http_server.cpp main.cpp \
-              -o stdb
+              -o acdb
 
       - name: Run test suite (26 tests)
-        run: ./stdb
+        run: ./acdb
         timeout-minutes: 5
 
   # ── Job 2: Docker build verification ──────────────────────────
@@ -55,14 +55,14 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: false
-          tags: stratadb:ci
+          load: true
+          tags: accretiondb:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Smoke test — dashboard responds
         run: |
-          docker run -d --name stratadb-smoke -p 8080:8080 stratadb:ci
+          docker run -d --name accretiondb-smoke -p 8080:8080 accretiondb:ci
           sleep 3
           curl -sf http://localhost:8080/api/metrics | python3 -c "
           import sys, json
@@ -71,7 +71,7 @@ jobs:
           assert 'bloom_effectiveness' in d, 'missing bloom_effectiveness'
           print('API smoke test passed:', d)
           "
-          docker stop stratadb-smoke
+          docker stop accretiondb-smoke
 
   # ── Job 3: Deploy to Railway (on push to main only) ────────────
   deploy:

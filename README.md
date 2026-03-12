@@ -1,12 +1,12 @@
-# StrataDB
+# AccretionDB
 
 **A WiscKey-style LSM storage engine built from scratch in C++20.**
 
-StrataDB separates keys from values at the storage layer — keys live in a sorted LSM tree (Write-Ahead Log → Memtable → SSTables), while values live in a separate append-only Value Log. This architecture trades a small read indirection for dramatically lower write amplification on SSDs, where random reads are fast but random writes destroy NAND cells.
+AccretionDB separates keys from values at the storage layer — keys live in a sorted LSM tree (Write-Ahead Log → Memtable → SSTables), while values live in a separate append-only Value Log. This architecture trades a small read indirection for dramatically lower write amplification on SSDs, where random reads are fast but random writes destroy NAND cells.
 
 The engine is crash-safe, fully durable, and implements multi-level compaction, LSM-driven garbage collection, per-SSTable Bloom Filters with `mmap` support, and a built-in benchmarking harness with latency percentile tracking.
 
-[![CI](https://github.com/ramilvm/stratadb/actions/workflows/ci.yml/badge.svg)](https://github.com/ramilvm/stratadb/actions/workflows/ci.yml)
+[![CI](https://github.com/ramilvm/accretiondb/actions/workflows/ci.yml/badge.svg)](https://github.com/ramilvm/accretiondb/actions/workflows/ci.yml)
 [![Tests](https://img.shields.io/badge/tests-26%20passing-brightgreen)](#testing)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)](#build)
 [![Docker](https://img.shields.io/badge/docker-ready-blue)](#deployment)
@@ -15,10 +15,10 @@ The engine is crash-safe, fully durable, and implements multi-level compaction, 
 
 ## Engine Introspector Dashboard
 
-StrataDB ships with a **real-time observability dashboard** — the same class of operational tooling that production storage engines like RocksDB and TiKV expose. The dashboard is implemented as a minimal HTTP server built on raw POSIX/Winsock2 sockets (~300 lines of C++, zero external dependencies) and served from the same binary as the engine.
+AccretionDB ships with a **real-time observability dashboard** — the same class of operational tooling that production storage engines like RocksDB and TiKV expose. The dashboard is implemented as a minimal HTTP server built on raw POSIX/Winsock2 sockets (~300 lines of C++, zero external dependencies) and served from the same binary as the engine.
 
 <p align="center">
-  <img src="assets/dashboard_preview.png" alt="StrataDB Engine Introspector Dashboard" width="800"/>
+  <img src="assets/dashboard_preview.png" alt="AccretionDB Engine Introspector Dashboard" width="800"/>
 </p>
 
 ### What the Dashboard Shows
@@ -42,8 +42,8 @@ mingw32-make          # Windows (MinGW)
 make                  # Linux / macOS
 
 # Start the introspector dashboard
-./stdb.exe web        # Windows
-./stdb web            # Linux / macOS
+./acdb.exe web        # Windows
+./acdb web            # Linux / macOS
 
 # Open in browser
 # http://localhost:8080
@@ -51,7 +51,7 @@ make                  # Linux / macOS
 
 Optional: specify a custom port:
 ```bash
-./stdb web 9090
+./acdb web 9090
 ```
 
 ### HTTP API Reference
@@ -94,13 +94,13 @@ curl -X POST http://localhost:8080/api/bench \
 
 ```bash
 # Build the image
-docker build -t stratadb .
+docker build -t accretiondb .
 
 # Run the dashboard
-docker run -p 8080:8080 stratadb
+docker run -p 8080:8080 accretiondb
 
 # With persistent data volume
-docker run -p 8080:8080 -v stratadb_data:/app/stdb_production stratadb
+docker run -p 8080:8080 -v accretiondb_data:/app/acdb_production accretiondb
 ```
 
 ### Docker Compose
@@ -129,18 +129,18 @@ Building a correct storage engine — not just a fast one — requires solving s
 
 **Write amplification kills SSDs.** Traditional LSM engines (LevelDB, RocksDB) write values into SSTables alongside keys. Compaction then rewrites those values repeatedly as data moves between levels. A 100-byte value might be physically written 10–30x over its lifetime. WiscKey separates values from the sorted structure entirely, reducing write amplification to near 1x for the sort path.
 
-**Crash consistency is non-negotiable.** A power failure during any write operation — WAL append, VLog append, SSTable flush, compaction, or manifest update — must leave the system in a recoverable state. Every metadata boundary in StrataDB is protected by `fsync` before the next step proceeds. The manifest uses atomic rename to ensure SSTable visibility is all-or-nothing.
+**Crash consistency is non-negotiable.** A power failure during any write operation — WAL append, VLog append, SSTable flush, compaction, or manifest update — must leave the system in a recoverable state. Every metadata boundary in AccretionDB is protected by `fsync` before the next step proceeds. The manifest uses atomic rename to ensure SSTable visibility is all-or-nothing.
 
 **Compaction correctness has subtle invariants.** When merging L0 SSTables into L1, the engine must guarantee newest-write-wins across overlapping key ranges, correctly propagate tombstones without prematurely dropping them, and produce strictly non-overlapping L1 output files — all while atomically updating the manifest so a crash mid-compaction doesn't corrupt the key space.
 
-**Garbage collection in a separated-value architecture is fundamentally different.** The Value Log accumulates stale values as keys are overwritten. Classical GC scans the VLog looking for live pointers, but this is fragile — it requires the VLog to contain keys, which violates value-only semantics. StrataDB's GC instead walks the LSM tree to discover live pointers, then rewrites only those values through the standard write path. This guarantees that no stale pointer can ever be resurrected.
+**Garbage collection in a separated-value architecture is fundamentally different.** The Value Log accumulates stale values as keys are overwritten. Classical GC scans the VLog looking for live pointers, but this is fragile — it requires the VLog to contain keys, which violates value-only semantics. AccretionDB's GC instead walks the LSM tree to discover live pointers, then rewrites only those values through the standard write path. This guarantees that no stale pointer can ever be resurrected.
 
 ---
 
 ## Architecture
 
 <p align="center">
-  <img src="assets/architecture_overview.png" alt="StrataDB Architecture Overview" width="700"/>
+  <img src="assets/architecture_overview.png" alt="AccretionDB Architecture Overview" width="700"/>
 </p>
 
 ### Component Breakdown
@@ -161,7 +161,7 @@ Building a correct storage engine — not just a fast one — requires solving s
 ## Write Path
 
 <p align="center">
-  <img src="assets/write_path.png" alt="StrataDB Write Path" width="500"/>
+  <img src="assets/write_path.png" alt="AccretionDB Write Path" width="500"/>
 </p>
 
 Every `put(key, value)` follows this exact sequence. The ordering is not arbitrary — violating it causes data loss.
@@ -186,7 +186,7 @@ Every `put(key, value)` follows this exact sequence. The ordering is not arbitra
 ## Read Path
 
 <p align="center">
-  <img src="assets/read_path.png" alt="StrataDB Read Path" width="600"/>
+  <img src="assets/read_path.png" alt="AccretionDB Read Path" width="600"/>
 </p>
 
 Every `get(key)` walks the following hierarchy, stopping at the first match:
@@ -258,7 +258,7 @@ Trigger: L0 file count > 15 (backpressure threshold)
 
 ## Value Log Garbage Collection
 
-StrataDB uses **LSM-driven GC**, not VLog-scanning GC:
+AccretionDB uses **LSM-driven GC**, not VLog-scanning GC:
 
 ```
 1. Sync and rotate VLog → old file becomes GC target
@@ -271,7 +271,7 @@ StrataDB uses **LSM-driven GC**, not VLog-scanning GC:
 7. Release old VLog file handle, delete file
 ```
 
-**Why naive VLog-scanning GC is wrong:** A naive approach would iterate the VLog, read each value, check if any SSTable still points to it, and keep it if so. This requires storing keys in the VLog (violating value-only semantics) and is O(VLog × SSTables). StrataDB's approach is O(LSM entries) and works with a value-only VLog format.
+**Why naive VLog-scanning GC is wrong:** A naive approach would iterate the VLog, read each value, check if any SSTable still points to it, and keep it if so. This requires storing keys in the VLog (violating value-only semantics) and is O(VLog × SSTables). AccretionDB's approach is O(LSM entries) and works with a value-only VLog format.
 
 **The `seen_keys` guarantee:** By iterating newest-to-oldest and only processing the first occurrence of each key, the engine guarantees that older shadowed entries — even if they exist on disk — are never rewritten. This prevents stale pointer resurrection.
 
@@ -444,7 +444,7 @@ These are actual bugs discovered and fixed during development, in chronological 
 Throughput is hard-capped at ~700 ops/s because the system enforces strict durability. Every `put()` pays the absolute hardware cost of two sequential `fsync()` barriers—one for the WAL, one for the Value Log. 1.27ms is the physical IO limit for unbatched, single-threaded writing on this NVMe drive. CPU tuning is irrelevant here until WAL group commit is introduced.
 
 **2. The 2.0x Write Amplification Boundary (The WiscKey Advantage)**
-Write amplification remains mathematically anchored at ~2.04x - 2.07x even under heavy sequential overlap. In a standard LSM (like LevelDB), sequential overwrites force compaction to repeatedly rewrite the 100-byte values, compounding write amplification to 10–30x. By decoupling keys from values, StrataDB exclusively serializes the value twice on ingestion (once to WAL, once to VLog). From that point forward, compaction only shuffles lightweight 20-byte pointers. The 2.0x is an un-optimizable floor for this layout, but it brilliantly insulates the SSD from compaction wear.
+Write amplification remains mathematically anchored at ~2.04x - 2.07x even under heavy sequential overlap. In a standard LSM (like LevelDB), sequential overwrites force compaction to repeatedly rewrite the 100-byte values, compounding write amplification to 10–30x. By decoupling keys from values, AccretionDB exclusively serializes the value twice on ingestion (once to WAL, once to VLog). From that point forward, compaction only shuffles lightweight 20-byte pointers. The 2.0x is an un-optimizable floor for this layout, but it brilliantly insulates the SSD from compaction wear.
 
 **3. The Read Amplification Illusion (Why 1.0x is misleading)**
 Read amplification tracks `(SST Searches + VLog Reads) / get()`. Because the per-SSTable Bloom Filters intercept missing keys instantly, overlapping L0 SSTables mathematically incur 0 searches. Ergo, successful reads perfectly hit 1 search and 1 VLog read (1.00x). However, WiscKey shifts structural read depth into physical random IOPS fragmentation—every read requires an un-cachable, random disk seek against the VLog unless shielded by a higher-level block cache.
@@ -454,7 +454,7 @@ While "Cold" sequential throughput was 743 ops/s, "Warm" throughput plummeted to
 
 Run benchmarks via the CLI:
 ```bash
-./stdb cli
+./acdb cli
 > bench random_write
 > bench mixed
 ```
@@ -475,7 +475,7 @@ The test suite (`main.cpp`) contains **26 tests** across 5 phases:
 
 Run:
 ```bash
-mingw32-make && ./stdb.exe
+mingw32-make && ./acdb.exe
 ```
 
 ---
@@ -483,7 +483,7 @@ mingw32-make && ./stdb.exe
 ## Project Structure
 
 ```
-stdb/
+acdb/
 ├── include/
 │   ├── wal.h            # WAL interface, record format, replay
 │   ├── vlog.h           # Value Log, VLogPointer struct
@@ -522,8 +522,8 @@ stdb/
 ```bash
 # Requires g++ with C++20 support (mingw-w64, gcc 13+, or clang 16+)
 mingw32-make          # Build
-./stdb.exe            # Run test suite
-./stdb.exe cli        # Interactive CLI mode
+./acdb.exe            # Run test suite
+./acdb.exe cli        # Interactive CLI mode
 mingw32-make clean    # Clean
 ```
 
@@ -538,4 +538,4 @@ mingw32-make clean    # Clean
 - **Range scans** — the current API supports point lookups only. An iterator interface would enable range queries, though the separated-value architecture makes this expensive (one VLog seek per key).
 
 
-*StrataDB is not a toy. It implements the full WiscKey paper architecture with crash-safe durability, correctness-first invariants, and real engineering fixes for bugs that only surface under failure conditions.*
+*AccretionDB is not a toy. It implements the full WiscKey paper architecture with crash-safe durability, correctness-first invariants, and real engineering fixes for bugs that only surface under failure conditions.*

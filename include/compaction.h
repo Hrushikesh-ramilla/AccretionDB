@@ -1,5 +1,5 @@
-#ifndef STDB_COMPACTION_H
-#define STDB_COMPACTION_H
+#ifndef ACDB_COMPACTION_H
+#define ACDB_COMPACTION_H
 
 class KVStore;
 
@@ -8,4 +8,4 @@ class KVStore;
 // drops tombstones if safe, and automatically commits a new manifest.
 void run_compaction(KVStore* store);
 
-#endif // STDB_COMPACTION_H
+#endif // ACDB_COMPACTION_H

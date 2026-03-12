@@ -1,5 +1,5 @@
-#ifndef STDB_MEMTABLE_H
-#define STDB_MEMTABLE_H
+#ifndef ACDB_MEMTABLE_H
+#define ACDB_MEMTABLE_H
 
 #include "vlog.h"
 #include <map>
@@ -22,4 +22,4 @@ private:
     size_t byte_size_ = 0;
 };
 
-#endif // STDB_MEMTABLE_H
+#endif // ACDB_MEMTABLE_H

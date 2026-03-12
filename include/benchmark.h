@@ -1,5 +1,5 @@
-#ifndef STDB_BENCHMARK_H
-#define STDB_BENCHMARK_H
+#ifndef ACDB_BENCHMARK_H
+#define ACDB_BENCHMARK_H
 
 #include "kvstore.h"
 #include <string>
@@ -11,4 +11,4 @@ private:
     static void run_workload(const std::string& dir, const std::string& type, bool is_warm, int num_ops);
 };
 
-#endif // STDB_BENCHMARK_H
+#endif // ACDB_BENCHMARK_H

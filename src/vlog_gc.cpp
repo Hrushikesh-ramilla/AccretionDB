@@ -19,7 +19,12 @@ void run_vlog_gc(KVStore* store) {
     // Windows requires closing the file before renaming.
     store->vlog_.reset(); 
 
-    std::filesystem::rename(active_vlog_path, old_vlog_path);
+    std::error_code ec;
+    std::filesystem::remove(old_vlog_path, ec);
+    std::filesystem::rename(active_vlog_path, old_vlog_path, ec);
+    if (ec) {
+        std::cerr << "[VLog GC] ERROR renaming vlog: " << ec.message() << "\n";
+    }
     store->vlog_ = std::make_unique<VLog>(active_vlog_path); // new clean active VLog
 
     auto old_vlog_reader = std::make_unique<VLog>(old_vlog_path);

@@ -26,7 +26,7 @@ static std::string random_string(size_t length) {
 
 
 void Benchmark::run_all(const std::string& type, int num_ops) {
-    std::string bench_dir = "stdb_bench_dir";
+    std::string bench_dir = "acdb_bench_dir";
     std::filesystem::remove_all(bench_dir);
     
     std::cout << "=== BENCHMARK: " << type << " ===\n";

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>StrataDB — Engine Introspector</title>
-  <meta name="description" content="Real-time observability dashboard for StrataDB — a WiscKey-style LSM storage engine built from scratch in C++20." />
+  <title>AccretionDB — Engine Introspector</title>
+  <meta name="description" content="Real-time observability dashboard for AccretionDB — a WiscKey-style LSM storage engine built from scratch in C++20." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -25,7 +25,7 @@
           </svg>
         </div>
         <div class="brand-text">
-          <span class="brand-name">StrataDB</span>
+          <span class="brand-name">AccretionDB</span>
           <span class="brand-sub">Engine Introspector</span>
         </div>
       </div>
@@ -216,12 +216,12 @@
         </div>
         <div class="console-output" id="console-output">
           <div class="console-line console-welcome">
-            <span class="console-prefix">stratadb&gt;</span>
+            <span class="console-prefix">accretiondb&gt;</span>
             <span>Engine introspector ready. Commands: put &lt;key&gt; &lt;value&gt; · get &lt;key&gt; · del &lt;key&gt;</span>
           </div>
         </div>
         <form class="console-input-row" id="console-form" autocomplete="off">
-          <span class="console-prompt">stratadb&gt;</span>
+          <span class="console-prompt">accretiondb&gt;</span>
           <input
             id="console-input"
             class="console-input"
@@ -274,7 +274,7 @@
         </div>
 
         <div class="bench-explain">
-          Benchmarks run against an isolated <code>stdb_bench_dir</code> and clean up after themselves.
+          Benchmarks run against an isolated <code>acdb_bench_dir</code> and clean up after themselves.
           Engine production data is unaffected.
         </div>
       </div>
@@ -285,11 +285,11 @@
 
   <!-- ── Footer ─────────────────────────────────────────────── -->
   <footer class="site-footer">
-    <span>StrataDB — WiscKey-style LSM storage engine</span>
+    <span>AccretionDB — WiscKey-style LSM storage engine</span>
     <span class="footer-sep">·</span>
     <span>C++20 · Raw sockets · No external dependencies</span>
     <span class="footer-sep">·</span>
-    <a href="https://github.com/ramilvm/stratadb" target="_blank" rel="noopener" class="footer-link">GitHub ↗</a>
+    <a href="https://github.com/ramilvm/accretiondb" target="_blank" rel="noopener" class="footer-link">GitHub ↗</a>
   </footer>
 
   <script src="/app.js"></script>

@@ -1,5 +1,5 @@
-#ifndef STDB_CLI_H
-#define STDB_CLI_H
+#ifndef ACDB_CLI_H
+#define ACDB_CLI_H
 
 #include "kvstore.h"
 #include <string>
@@ -10,4 +10,4 @@ public:
     static void parse_command(KVStore& store, const std::string& cmd_line);
 };
 
-#endif // STDB_CLI_H
+#endif // ACDB_CLI_H

@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   StrataDB Engine Introspector — Dashboard JavaScript
+   AccretionDB Engine Introspector — Dashboard JavaScript
    Real-time metrics polling · LSM visualization · Console · Benchmarks
    ═══════════════════════════════════════════════════════════════ */
 
@@ -288,7 +288,7 @@ function appendConsoleCmd(text) {
   const p = document.createElement('span');
   p.className = 'console-prefix';
   p.style.color = '#7c3aed';
-  p.textContent = 'stratadb>';
+  p.textContent = 'accretiondb>';
 
   const t = document.createElement('span');
   t.className = 'console-cmd';
@@ -313,8 +313,8 @@ consoleForm.addEventListener('submit', async (e) => {
   try {
     if (cmd === 'put') {
       const key   = parts[1] || '';
-      const value = parts.slice(2).join(' ').replace(/^["']|["']$/g, '');
-      if (!key || !value) { appendConsoleLine('>', 'usage: put <key> <value>', '', 'err'); return; }
+      const value = parts.length > 2 ? parts.slice(2).join(' ').replace(/^["']|["']$/g, '') : undefined;
+      if (!key || value === undefined) { appendConsoleLine('>', 'usage: put <key> <value>', '', 'err'); return; }
       const r = await fetch('/api/put', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
