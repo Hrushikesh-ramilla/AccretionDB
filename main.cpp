@@ -690,6 +690,9 @@ int main(int argc, char* argv[]) {
 
     if (argc > 1 && std::string(argv[1]) == "web") {
         int port = 8080;
+        if (const char* env_p = std::getenv("PORT")) {
+            port = std::stoi(env_p);
+        }
         if (argc > 2) port = std::stoi(argv[2]);
         std::cout << "\n";
         std::cout << "  ╭───────────────────────────────────╮\n";
