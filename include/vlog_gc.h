@@ -1,5 +1,5 @@
-#ifndef STDB_VLOG_GC_H
-#define STDB_VLOG_GC_H
+#ifndef ACDB_VLOG_GC_H
+#define ACDB_VLOG_GC_H
 
 class KVStore;
 
@@ -12,4 +12,4 @@ class KVStore;
 // 5. Deletes the old VLog safely.
 void run_vlog_gc(KVStore* store);
 
-#endif // STDB_VLOG_GC_H
+#endif // ACDB_VLOG_GC_H

@@ -1,5 +1,5 @@
-#ifndef STDB_WAL_H
-#define STDB_WAL_H
+#ifndef ACDB_WAL_H
+#define ACDB_WAL_H
 
 #include <cstdint>
 #include <string>
@@ -75,4 +75,4 @@ private:
     static constexpr uint32_t MAX_FIELD_SIZE = 64u * 1024u * 1024u; // 64 MiB
 };
 
-#endif // STDB_WAL_H
+#endif // ACDB_WAL_H

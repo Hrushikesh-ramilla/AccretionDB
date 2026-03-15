@@ -1,7 +1,7 @@
 CXX      = g++
 CXXFLAGS = -std=c++20 -Wall -Wextra -Iinclude
 SRCS     = src/crc32.cpp src/wal.cpp src/vlog.cpp src/sstable.cpp src/memtable.cpp src/manifest.cpp src/compaction.cpp src/vlog_gc.cpp src/bloom.cpp src/benchmark.cpp src/cli.cpp src/kvstore.cpp src/http_server.cpp main.cpp
-TARGET   = stdb
+TARGET   = acdb
 
 ifeq ($(OS),Windows_NT)
 	TARGET  := $(TARGET).exe
@@ -24,6 +24,6 @@ web: $(TARGET)
 
 clean:
 	$(RM) $(TARGET) test_wal.bin
-	$(RMDIR) test_stdb 2>nul || true
+	$(RMDIR) test_acdb 2>nul || true
 
 .PHONY: all clean web

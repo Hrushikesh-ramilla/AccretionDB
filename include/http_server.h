@@ -1,5 +1,5 @@
-#ifndef STDB_HTTP_SERVER_H
-#define STDB_HTTP_SERVER_H
+#ifndef ACDB_HTTP_SERVER_H
+#define ACDB_HTTP_SERVER_H
 
 // ── Platform socket abstraction ───────────────────────────────────
 // On Windows (MinGW/MSVC) we use Winsock2.
@@ -101,6 +101,7 @@ private:
 
     // Minimal JSON body parser — extracts a string value for a given key
     // from a flat {"k":"v",...} object. Returns "" if key not found.
+    static bool        json_has_key(const std::string& json, const std::string& key);
     static std::string json_get_str(const std::string& json, const std::string& key);
     static long long   json_get_int(const std::string& json, const std::string& key,
                                     long long default_val = 0);
@@ -114,4 +115,4 @@ private:
     socket_t  server_fd_;
 };
 
-#endif // STDB_HTTP_SERVER_H
+#endif // ACDB_HTTP_SERVER_H

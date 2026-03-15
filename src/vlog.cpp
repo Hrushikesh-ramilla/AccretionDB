@@ -116,10 +116,7 @@ bool VLog::append(const std::string& value, VLogPointer& out_pointer) {
     return true;
 }
 
-extern bool g_disable_sync;
-
 bool VLog::sync() {
-    if (g_disable_sync) return true;
     if (vlog_fsync(write_fd_) != 0) {
         std::cerr << "[VLog] ERROR: fsync failed (errno=" << errno << ")\n";
         return false;

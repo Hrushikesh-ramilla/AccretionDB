@@ -1,5 +1,5 @@
-#ifndef STDB_VLOG_H
-#define STDB_VLOG_H
+#ifndef ACDB_VLOG_H
+#define ACDB_VLOG_H
 
 #include <cstdint>
 #include <string>
@@ -41,4 +41,4 @@ private:
     uint64_t    current_offset_;   // user-space offset tracking
 };
 
-#endif // STDB_VLOG_H
+#endif // ACDB_VLOG_H

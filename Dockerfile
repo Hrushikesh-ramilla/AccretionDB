@@ -24,7 +24,8 @@ RUN g++ -std=c++20 -O2 -Wall -Wextra -Iinclude \
         src/kvstore.cpp \
         src/http_server.cpp \
         main.cpp \
-        -o stdb
+        -static-libstdc++ -static-libgcc \
+        -o acdb
 
 # ── Stage 2: Runtime ──────────────────────────────────────────────
 # Debian slim — minimal footprint, just enough to run the binary.
@@ -32,13 +33,13 @@ FROM debian:bookworm-slim AS runtime
 
 # Install libstdc++ runtime (bundled with GCC, needed for std::filesystem)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libstdc++6 \
+    libstdc++6 wget \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 # Copy the compiled binary
-COPY --from=builder /build/stdb ./stdb
+COPY --from=builder /build/acdb ./acdb
 
 # Copy the web dashboard assets
 COPY --from=builder /build/web ./web
@@ -51,4 +52,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD wget -qO- http://localhost:8080/api/metrics || exit 1
 
 # Default: start the HTTP server in web mode
-CMD ["./stdb", "web"]
+CMD ["./acdb", "web"]

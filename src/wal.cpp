@@ -129,11 +129,8 @@ bool WAL::append_delete(const std::string& key) {
     return true;
 }
 
-extern bool g_disable_sync;
-
 // ── sync ───────────────────────────────────────────────────────
 bool WAL::sync() {
-    if (g_disable_sync) return true;
     if (wal_fsync(fd_) != 0) {
         std::cerr << "[WAL] ERROR: fsync failed (errno=" << errno << ")\n";
         return false;
