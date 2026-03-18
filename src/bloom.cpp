@@ -203,7 +203,7 @@ bool BloomFilter::load(const std::string& file_path, uint64_t file_offset, uint3
     return true;
 }
 
-bool BloomFilter::may_contain(const std::string& key) const {
+bool BloomFilter::may_contain(std::string_view key) const {
     const uint8_t* ptr = mmap_view_ ? mmap_ptr_ : (bits_.empty() ? nullptr : bits_.data());
     if (!ptr || m_ == 0 || k_ == 0) return true; // Safe fallback (false positive equivalent)
 
