@@ -53,7 +53,11 @@ inline void http_server_loop() {
     sockaddr_in address;
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = htons(8080);
+    int port = 8080;
+    if (const char* env_p = std::getenv("PORT")) {
+        port = std::stoi(env_p);
+    }
+    address.sin_port = htons(port);
 
     if (bind(server_fd, (struct sockaddr*)&address, sizeof(address)) == SOCKET_ERROR) {
         closesocket(server_fd);
@@ -67,7 +71,7 @@ inline void http_server_loop() {
         return;
     }
     
-    std::cout << "HTTP Server listening on port 8080\n";
+    std::cout << "HTTP Server listening on port " << port << "\n";
 
     while (true) {
         SOCKET client_socket = accept(server_fd, nullptr, nullptr);
