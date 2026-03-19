@@ -657,6 +657,15 @@ static void test_bloom_invariant_disabling(const std::string& dir) {
 int main(int argc, char* argv[]) {
     start_http_server();
 
+    if (argc > 1 && std::string(argv[1]) == "web") {
+        std::cout << "Starting web dashboard mode on port 8080 (or $PORT)...\n";
+        KVStore store("acdb_production");
+        g_http_kvstore = &store;
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::hours(1));
+        }
+        return 0;
+    }
 
     if (argc > 1 && std::string(argv[1]) == "redis") {
         int port = 6379;

@@ -30,7 +30,7 @@ Building a correct storage engine — not just a fast one — requires solving s
 ## Architecture
 
 <p align="center">
-  <img src="assets/architecture_overview.png" alt="AccretionDB Architecture Overview" width="700"/>
+  <img src="assets/accretion-architecture-new.png" alt="AccretionDB Architecture Overview" width="700"/>
 </p>
 
 ### Component Breakdown
@@ -49,7 +49,7 @@ Building a correct storage engine — not just a fast one — requires solving s
 <br>
 
 <p align="center">
-  <img src="assets/wal_vlog_format.png" alt="AccretionDB WAL & VLog Format" width="700"/>
+  
 </p>
 
 ---
@@ -60,9 +60,22 @@ Concurrent `put()` calls batch into a single `fsync` via a lock-free leader/foll
 
 This amortizes the fixed cost of `fsync` across concurrent writers: single-threaded throughput is ~243 ops/s, but with 16 concurrent writers, throughput reaches **~8,386 ops/s — a ~35x concurrency speedup**.
 
-<p align="center">
-  <img src="assets/write_path.png" alt="AccretionDB Write Path" width="500"/>
-</p>
+```mermaid
+sequenceDiagram
+    participant T as Worker Thread
+    participant L as Group Leader
+    participant V as Value Log
+    participant W as WAL
+    participant M as Memtable (SkipList)
+
+    T->>L: 1. link_one() [Join lock-free batch]
+    L->>V: 2. Batch append all values
+    L->>W: 3. Batch append keys + VLogPointers
+    L->>V: 4. fsync() [Pointer Validity Boundary]
+    L->>W: 5. fsync() [Durability Boundary]
+    L-->>T: 6. Wake up followers
+    T->>M: 7. Concurrent put(key, pointer)
+```
 
 Every `put(key, value)` follows this exact sequence. The ordering is not arbitrary — violating it causes data loss.
 
@@ -81,7 +94,7 @@ Every `put(key, value)` follows this exact sequence. The ordering is not arbitra
 ## Read Path
 
 <p align="center">
-  <img src="assets/read_path.png" alt="AccretionDB Read Path" width="600"/>
+  
 </p>
 
 Every `get(key)` walks the following hierarchy, stopping at the first match:
@@ -177,11 +190,15 @@ On startup, `KVStore::recover()` executes:
 
 *Benchmarks executed on a modern NVMe SSD.*
 
+<p align="center">
+  <img src="assets/accretion-benchmarks-new.png" alt="AccretionDB Benchmarks" width="700"/>
+</p>
+
 ### Concurrent Throughput
 AccretionDB achieves **>413,000 ops/sec concurrent throughput**, scaling dynamically via its lock-free group commit architecture and custom Arena allocator. Write amplification remains mathematically anchored at ~2.04x - 2.07x even under heavy sequential overlap, showcasing the extreme SSD endurance benefits of WiscKey value separation over traditional LSMs.
 
-### The "Hostile Audit"
-AccretionDB survived a rigorous "Hostile Audit" designed to stress-test its concurrency and durability invariants against industry standards like RocksDB. The audit confirmed that its performance metrics are uninflated, proving its lock-free group commit and MMap (Memory-Mapped I/O) for SSTables deliver real-world, crash-safe performance at scale.
+### Stability and Reliability
+AccretionDB has undergone extensive stress-testing to validate its concurrency and durability invariants against edge cases (e.g., sudden process termination during flush, multi-threaded group commit contention). The MMap (Memory-Mapped I/O) implementation for SSTable Bloom filters and lock-free thread pool exhibit stable, crash-safe performance under sustained load without memory leaks or race conditions.
 
 ---
 
@@ -272,6 +289,3 @@ mingw32-make          # Build AccretionDB
 mingw32-make clean    # Clean build artifacts
 ```
 
----
-
-*AccretionDB is not a toy. It implements the full WiscKey paper architecture with crash-safe durability, correctness-first invariants, and highly concurrent lock-free systems engineering.*

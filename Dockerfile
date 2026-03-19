@@ -31,6 +31,7 @@ RUN g++ -std=c++20 -O2 -Wall -Wextra -Iinclude \
         main.cpp \
         -pthread \
         -static-libstdc++ -static-libgcc \
+        -latomic \
         -o acdb
 
 # ── Stage 2: Runtime ──────────────────────────────────────────────
