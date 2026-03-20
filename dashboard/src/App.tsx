@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Database, Activity, HardDrive, Cpu, AlertCircle, Clock, Zap, ChevronRight } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
+import { Database, HardDrive, Cpu, AlertCircle, Clock, Zap, ChevronRight } from 'lucide-react';
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
 interface LsmState {
   memtable_size?: number;
@@ -17,7 +17,7 @@ interface HistoryPoint {
   p99_latency: number;
 }
 
-const StatCard = ({ title, value, icon: Icon, unit = '', color = 'text-cyan-400', bgGlow = 'bg-cyan-500/10' }: any) => {
+const StatCard = ({ title, value, icon: Icon, unit = '', bgGlow = 'bg-cyan-500/10' }: any) => {
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
@@ -51,7 +51,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryPoint[]>([]);
   const [isSpiking, setIsSpiking] = useState(false);
-  const [showToast, setShowToast] = useState(false);
+  const [, setShowToast] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {

@@ -2,7 +2,6 @@
 #define ACDB_ARENA_H
 
 #include <atomic>
-#include <atomic>
 #include <vector>
 #include <cstddef>
 #include <cstdint>

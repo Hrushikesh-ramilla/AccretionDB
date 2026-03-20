@@ -11,7 +11,7 @@ private:
     static constexpr size_t NUM_SHARDS = 16;
     // Align to 64 bytes (cache line size) to prevent false sharing
     struct alignas(64) PaddedMutex {
-        std::mutex m;
+        std::shared_mutex m;
     };
     std::array<PaddedMutex, NUM_SHARDS> shards_;
 

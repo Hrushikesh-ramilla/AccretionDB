@@ -1,7 +1,7 @@
-#include <vector>
 #ifndef ACDB_VLOG_H
 #define ACDB_VLOG_H
 
+#include <vector>
 #include <cstdint>
 #include <string>
 #include <string_view>

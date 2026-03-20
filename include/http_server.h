@@ -7,6 +7,8 @@
 #include <iostream>
 #include <chrono>
 #include <cstdlib>
+#include <algorithm>
+#include <cstring>
 
 #include "socket_compat.h"
 
