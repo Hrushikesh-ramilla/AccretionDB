@@ -1,10 +1,13 @@
 #include "crc32.h"
 #include <cstring>
 #include <vector>
+#include <string_view>
+
+#include <mutex>
 
 // CRC32 lookup table (IEEE 802.3 polynomial, reflected).
 static uint32_t crc32_table[256];
-static bool     crc32_table_initialized = false;
+static std::once_flag crc32_init_flag;
 
 static void init_crc32_table() {
     for (uint32_t i = 0; i < 256; ++i) {
@@ -13,25 +16,41 @@ static void init_crc32_table() {
             crc = (crc >> 1) ^ (0xEDB88320 & (-(crc & 1)));
         crc32_table[i] = crc;
     }
-    crc32_table_initialized = true;
 }
 
 uint32_t compute_crc32(const uint8_t* data, size_t len) {
-    if (!crc32_table_initialized) init_crc32_table();
+    std::call_once(crc32_init_flag, init_crc32_table);
     uint32_t crc = 0xFFFFFFFF;
     for (size_t i = 0; i < len; ++i)
         crc = (crc >> 8) ^ crc32_table[(crc ^ data[i]) & 0xFF];
     return crc ^ 0xFFFFFFFF;
 }
 
-uint32_t record_checksum(uint32_t key_size, uint32_t value_size,
-                         const std::string& key, const std::string& value) {
-    // Checksum covers: key_size + value_size + key_bytes + value_bytes
-    std::vector<uint8_t> buf(sizeof(uint32_t) * 2 + key.size() + value.size());
-    size_t off = 0;
-    std::memcpy(buf.data() + off, &key_size, sizeof(uint32_t));   off += sizeof(uint32_t);
-    std::memcpy(buf.data() + off, &value_size, sizeof(uint32_t)); off += sizeof(uint32_t);
-    std::memcpy(buf.data() + off, key.data(), key.size());        off += key.size();
-    std::memcpy(buf.data() + off, value.data(), value.size());
-    return compute_crc32(buf.data(), buf.size());
+uint32_t compute_crc32_incremental(uint32_t crc, const uint8_t* data, size_t len) {
+    std::call_once(crc32_init_flag, init_crc32_table);
+    crc = crc ^ 0xFFFFFFFF;
+    for (size_t i = 0; i < len; ++i)
+        crc = (crc >> 8) ^ crc32_table[(crc ^ data[i]) & 0xFF];
+    return crc ^ 0xFFFFFFFF;
+}
+
+uint32_t record_checksum(uint32_t key_size, uint32_t vlog_id, uint64_t vlog_offset, uint32_t vlog_len,
+                         std::string_view key) {
+    uint32_t checksum = 0xFFFFFFFF;
+    
+    auto update = [&](const void* data, size_t len) {
+        const uint8_t* bytes = static_cast<const uint8_t*>(data);
+        std::call_once(crc32_init_flag, init_crc32_table);
+        for (size_t i = 0; i < len; ++i)
+            checksum = (checksum >> 8) ^ crc32_table[(checksum ^ bytes[i]) & 0xFF];
+    };
+
+    update(&key_size, sizeof(key_size));
+    update(&vlog_id, sizeof(vlog_id));
+    update(&vlog_offset, sizeof(vlog_offset));
+    update(&vlog_len, sizeof(vlog_len));
+    if (key_size > 0 && !key.empty()) {
+        update(key.data(), key_size);
+    }
+    return checksum ^ 0xFFFFFFFF;
 }
