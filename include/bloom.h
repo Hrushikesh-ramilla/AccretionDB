@@ -2,6 +2,7 @@
 #define ACDB_BLOOM_H
 
 #include <string>
+#include <string_view>
 #include <vector>
 #include <cstdint>
 
@@ -29,7 +30,7 @@ public:
     bool load(const std::string& file_path, uint64_t file_offset, uint32_t bloom_size, uint32_t k);
 
     // Query method
-    bool may_contain(const std::string& key) const;
+    bool may_contain(std::string_view key) const;
 
     // Serialization getters
     const std::vector<uint8_t>& data() const { return bits_; }

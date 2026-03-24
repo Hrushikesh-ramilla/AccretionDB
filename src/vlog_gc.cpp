@@ -1,87 +1,69 @@
 #include "vlog_gc.h"
+#include "fault_injection.h"
 #include "kvstore.h"
+#include "sstable_iterator.h"
 
 #include <filesystem>
 #include <iostream>
-#include <map>
+#include <vector>
 #include <set>
 
 // Definition for run_vlog_gc
 void run_vlog_gc(KVStore* store) {
     if (!store) return;
 
-    // 1. Force a VLog rotation to safely isolate the "old" VLog file for GC.
-    // This allows GC to happen cleanly on a static file, without breaking Phase 1/2 VLog constraints.
-    store->vlog_->sync();
-    std::string active_vlog_path = store->vlog_path();
-    std::string old_vlog_path = store->data_dir_ + "/vlog_gc_target.bin";
-
-    // Windows requires closing the file before renaming.
-    store->vlog_.reset(); 
-
-    std::error_code ec;
-    std::filesystem::remove(old_vlog_path, ec);
-    std::filesystem::rename(active_vlog_path, old_vlog_path, ec);
-    if (ec) {
-        std::cerr << "[VLog GC] ERROR renaming vlog: " << ec.message() << "\n";
-    }
-    store->vlog_ = std::make_unique<VLog>(active_vlog_path); // new clean active VLog
-
-    auto old_vlog_reader = std::make_unique<VLog>(old_vlog_path);
-
-    // 2. Scan LSM tree to collect ONLY the newest LIVE pointers.
-    std::map<std::string, VLogPointer> live_pointers;
-    std::set<std::string> seen_keys; // Guarantee ONLY latest version per key is rewritten
-
-    // Strictly process Newest to Oldest to guarantee shadows are respected.
-    auto process_entries = [&](const std::string& key, const VLogPointer& ptr) {
-        if (seen_keys.find(key) != seen_keys.end()) return; // Older shadowed version, skip
-        
-        seen_keys.insert(key);
-        if (!is_tombstone(ptr)) {
-            live_pointers[key] = ptr;
+    uint32_t gc_target_id = 0;
+    std::shared_ptr<VLog> old_vlog;
+    {
+        std::lock_guard<std::mutex> lk(store->vlogs_mutex_);
+        if (store->vlogs_.size() > 1) {
+            auto it = store->vlogs_.begin();
+            if (it->first < store->current_vlog_id_) {
+                gc_target_id = it->first;
+                old_vlog = it->second;
+            }
         }
-    };
-
-    // A. Active Memtable (Newest)
-    if (store->active_) {
-        for (const auto& [k, v] : store->active_->entries()) process_entries(k, v);
     }
 
-    // B. Immutable Memtable
-    if (store->immutable_) {
-        for (const auto& [k, v] : store->immutable_->entries()) process_entries(k, v);
-    }
+    if (gc_target_id == 0 || !old_vlog) return; // Nothing to GC
 
-    // C. L0 SSTables (Iterate 0 to N. l0_sstables_ is already kept newest-first!)
-    for (const auto& sst : store->l0_sstables_) {
-        for (const auto& e : sst.entries()) process_entries(e.key, e.pointer);
-    }
-
-    // D. L1 SSTables (Oldest level conceptually)
-    for (const auto& sst : store->l1_sstables_) {
-        for (const auto& e : sst.entries()) process_entries(e.key, e.pointer);
-    }
-
-    // 3. Rewrite Live Values
     size_t rewritten = 0;
-    for (const auto& [key, ptr] : live_pointers) {
-        std::string value;
-        if (old_vlog_reader->read_at(ptr, value)) {
-            // standard LSM write path overrides naturally
-            store->put(key, value);
-            // GC internal put should not artificially inflate user structural bytes
-            store->subtract_user_bytes(key.size() + value.size());
-            rewritten++;
-        } else {
-            std::cerr << "[VLog GC] WARNING: failed to read live pointer for key " << key << "\n";
+    uint64_t offset = 0;
+    VLogRecord record;
+
+    // Stream the old VLog sequentially with O(1) memory
+    while (old_vlog->read_next(offset, record)) {
+        VLogPointer current_ptr;
+        bool is_live = store->get_pointer(record.key, current_ptr);
+
+        // A value is live if the key exists AND the pointer points to the exact same location
+        if (is_live && current_ptr.file_id == gc_target_id && current_ptr.offset == record.pointer.offset) {
+            // Enqueue GC write request
+            KVStore::WriteRequest gc_req;
+            gc_req.key = record.key;
+            gc_req.value = record.value;
+            gc_req.is_gc = true;
+            gc_req.gc_old_vlog_id = gc_target_id;
+            
+            store->execute_write_request(&gc_req);
+            
+            if (!gc_req.error) {
+                store->subtract_user_bytes(record.key.size() + record.value.size());
+                rewritten++;
+            } else {
+                std::cerr << "[VLog GC] WARNING: failed to rewrite live pointer for key " << record.key << "\n";
+            }
         }
     }
 
-    // 4. Verification Step: Ensure NO references point to old vlog physically
-    // (In reality, since we rewrote all valid references matching this file via put(),
-    // and no new writes targeted it, the count of active references to this file is exactly 0).
-    old_vlog_reader.reset(); // Release Windows file lock
-    std::filesystem::remove(old_vlog_path);
-    std::cout << "[VLog GC] Rewrote " << rewritten << " live values and dropped old VLog.\n";
+    FaultInjection::check("crash_during_vlog_rewrite");
+
+    // Mark the VLog for deletion after the next memtable flush
+    {
+        std::lock_guard<std::mutex> lk(store->flush_wait_mutex_);
+        store->pending_gc_vlogs_.push_back(gc_target_id);
+    }
+
+    std::cout << "[VLog GC] Rewrote " << rewritten << " live values and queued old VLog " << gc_target_id << " for deletion.\n";
 }
+

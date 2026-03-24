@@ -3,12 +3,15 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
+
+#include "vlog.h"
 
 // A single replayed WAL entry.
 struct WALEntry {
     std::string key;
-    std::string value;
+    VLogPointer pointer;
     bool is_tombstone = false;
 };
 
@@ -22,11 +25,11 @@ struct ReplayResult {
 //
 // Record format (binary, little-endian, no padding):
 //   [uint32_t key_size]
-//   [uint32_t value_size]  — NOTE: 0xFFFFFFFF explicitly indicates a TOMBSTONE (delete marker).
-//   [uint32_t checksum]    — CRC32 over (key_size, value_size, key, value)
+//   [uint32_t vlog_id]
+//   [uint64_t vlog_offset]
+//   [uint32_t vlog_len]    — NOTE: 0xFFFFFFFF explicitly indicates a TOMBSTONE (delete marker).
+//   [uint32_t checksum]    — CRC32 over (key_size, vlog_id, vlog_offset, vlog_len, key)
 //   [key_size bytes]       — key
-//   [value_size bytes]     — value
-//
 // File descriptor is kept open for the lifetime of the WAL object.
 //
 // Memory safety note: replay allocates key/value buffers sized by the
@@ -47,12 +50,12 @@ public:
     WAL(const WAL&) = delete;
     WAL& operator=(const WAL&) = delete;
 
-    // Append a key-value record. Loops until the full record is written.
+    // Append a key-VLog pointer record. Loops until the full record is written.
     // Returns false on I/O error (caller must NOT proceed to memtable).
-    bool append(const std::string& key, const std::string& value);
+    bool append(std::string_view key, const VLogPointer& ptr);
 
     // Append a tombstone record.
-    bool append_delete(const std::string& key);
+    bool append_delete(std::string_view key);
 
     // Flush to stable storage (fdatasync / platform equivalent).
     // Returns false if fsync fails (caller must NOT proceed to memtable).
@@ -68,6 +71,7 @@ public:
 
 private:
     std::string path_;
+    std::vector<uint8_t> buffer_;
     int         fd_;       // persistent file descriptor (append mode)
     bool        tainted_;  // set by replay if corruption detected
 
