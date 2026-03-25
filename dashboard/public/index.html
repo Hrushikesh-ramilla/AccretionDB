@@ -308,7 +308,7 @@ function renderState(stale) {
 /* ── Polling ───────────────────────────────────────────────────────────── */
 async function pollState() {
   try {
-    const res = await fetch('http://localhost:8080/state', {
+    const res = await fetch('/state', {
       headers: { 'Accept': 'application/json' },
       signal: AbortSignal.timeout(3000)
     });
@@ -348,7 +348,7 @@ const HELP_TEXT =
 
 async function cmdPing() {
   try {
-    const res  = await fetch('http://localhost:8080/state', { signal: AbortSignal.timeout(3000) });
+    const res  = await fetch('/state', { signal: AbortSignal.timeout(3000) });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     engineState = data; setOnline(true); renderState(false);
@@ -362,7 +362,7 @@ async function cmdPing() {
 
 async function cmdMetrics() {
   try {
-    const res  = await fetch('http://localhost:8080/api/metrics', { signal: AbortSignal.timeout(3000) });
+    const res  = await fetch('/api/metrics', { signal: AbortSignal.timeout(3000) });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     println(JSON.stringify(data, null, 2), 'result');
@@ -377,7 +377,7 @@ async function cmdMetrics() {
 
 async function cmdGet(key) {
   try {
-    const res = await fetch('http://localhost:8080/api/get', {
+    const res = await fetch('/api/get', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key }),
@@ -399,7 +399,7 @@ async function cmdGet(key) {
 
 async function cmdPut(key, value) {
   try {
-    const res = await fetch('http://localhost:8080/api/put', {
+    const res = await fetch('/api/put', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key, value }),
@@ -419,7 +419,7 @@ async function cmdPut(key, value) {
 
 async function cmdDel(key) {
   try {
-    const res = await fetch('http://localhost:8080/api/del', {
+    const res = await fetch('/api/del', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key }),
@@ -452,7 +452,7 @@ async function cmdBench(type, ops) {
   println('running ' + type + ' benchmark · ' + n + ' ops…', 'info');
   const t0 = Date.now();
   try {
-    const res = await fetch('http://localhost:8080/api/bench', {
+    const res = await fetch('/api/bench', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type, ops: n }),
