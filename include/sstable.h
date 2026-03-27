@@ -3,65 +3,84 @@
 
 #include "vlog.h"
 #include "bloom.h"
+#include "cache.h"
 #include <cstdint>
-#include <map>
 #include <string>
+#include <string_view>
 #include <vector>
 
-// Entry stored in an SSTable: key + vlog pointer.
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 struct SSTableEntry {
     std::string key;
     VLogPointer pointer;
 };
 
+struct IndexEntry {
+    std::string max_key;
+    uint32_t offset;
+    uint32_t length;
+};
+
 // Writes a sorted set of key-pointer pairs to an SSTable file.
 //
-// File layout (STRICT):
-//   [Data Section: entries in sorted key order]
+// File layout (BLOCK ORIENTED):
+//   [Data Blocks: 4KB chunks of entries]
+//   [Index Block: serialized array of max_key, block_offset, block_size]
 //   [Bloom Filter Bytes]
-//   [Footer: uint32_t entry_count, uint32_t bloom_offset, uint32_t bloom_size, uint32_t checksum]
+//   [Footer: uint32_t index_offset, uint32_t bloom_offset, uint32_t bloom_size, uint32_t checksum]
 //
 // Entry format:
 //   [uint32_t key_size][key bytes][uint32_t file_id][uint64_t offset][uint32_t length]
 class SSTableWriter {
 public:
-    // Write entries to file. Returns false on error.
-    static bool write(const std::string& path,
-                      const std::map<std::string, VLogPointer>& entries);
+    static bool write(const std::string& path, const std::vector<SSTableEntry>& entries);
 };
+
+struct EngineMetrics;
 
 // Loads and queries an SSTable file.
 class SSTableReader {
 public:
     SSTableReader() = default;
+    ~SSTableReader();
 
-    // Load from file. Validates footer checksum. Returns false if invalid.
+    // Load Index and Bloom Filter into memory.
     bool load(const std::string& path);
 
-    // Binary search for key. Returns true and sets out_pointer if found.
-    bool get(const std::string& key, VLogPointer& out_pointer) const;
+    // Query key. Uses cache for block lookups.
+    bool get(std::string_view key, VLogPointer& out_pointer, acdb::ShardedLRUCache* cache, EngineMetrics* metrics = nullptr) const;
 
     uint32_t sequence() const { return sequence_; }
     const std::string& path() const { return path_; }
 
-    // Range metadata (assuming entries are sorted).
-    const std::string& min_key() const { return entries_.front().key; }
-    const std::string& max_key() const { return entries_.back().key; }
+    const std::string& min_key() const { return min_key_; }
+    const std::string& max_key() const { return max_key_; }
 
-    // Returns true if this table's key range overlaps with [min_k, max_k].
-    bool overlaps(const std::string& min_k, const std::string& max_k) const {
-        if (entries_.empty()) return false;
+    bool overlaps(std::string_view min_k, std::string_view max_k) const {
+        if (index_.empty()) return false;
         return !(max_key() < min_k || min_key() > max_k);
     }
 
-    const std::vector<SSTableEntry>& entries() const { return entries_; }
+    const std::vector<IndexEntry>& index() const { return index_; }
     const BloomFilter& bloom() const { return bloom_; }
 
 private:
     std::string              path_;
     uint32_t                 sequence_ = 0;
-    std::vector<SSTableEntry> entries_;  // sorted by key
+    std::string              min_key_;
+    std::string              max_key_;
+    std::vector<IndexEntry>  index_;
     BloomFilter              bloom_;
+    int                      fd_ = -1;
+#ifdef _WIN32
+    HANDLE                   hFile_ = INVALID_HANDLE_VALUE;
+    HANDLE                   hMap_ = NULL;
+    const uint8_t*           mapped_data_ = nullptr;
+    size_t                   mapped_size_ = 0;
+#endif
 };
 
 #endif // ACDB_SSTABLE_H
