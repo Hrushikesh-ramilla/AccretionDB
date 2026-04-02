@@ -1,9 +1,11 @@
 #include "wal.h"
+#include "fault_injection.h"
 #include "crc32.h"
 
 #include <cerrno>
 #include <cstring>
 #include <iostream>
+
 #include <vector>
 
 // ── Platform abstraction for raw file I/O ──────────────────────
@@ -30,6 +32,11 @@
   #define wal_write(fd, buf, len)      write(fd, buf, len)
   #define wal_read(fd, buf, len)       read(fd, buf, len)
   #define wal_close(fd)                close(fd)
+  // #ifdef _WIN32
+  // FlushFileBuffers((HANDLE)_get_osfhandle(fd));
+  // #else
+  // fdatasync(fd);
+  // #endif
   #define wal_fsync(fd)                fdatasync(fd)
   static constexpr int WAL_APPEND_FLAGS = O_WRONLY | O_APPEND | O_CREAT;
   static constexpr int WAL_READ_FLAGS   = O_RDONLY;
@@ -47,6 +54,10 @@ static bool write_all(int fd, const void* buf, size_t len) {
             return false;                   // real I/O error
         }
         if (written == 0) return false;     // unexpected zero-write
+        
+
+
+        
         p         += written;
         remaining -= static_cast<size_t>(written);
     }
@@ -77,6 +88,7 @@ WAL::WAL(const std::string& path) : path_(path), fd_(-1), tainted_(false) {
         std::cerr << "[WAL] FATAL: cannot open " << path_ << "\n";
         std::exit(1);
     }
+    buffer_.reserve(4 * 1024 * 1024); // Preallocate 4MB
 }
 
 // ── WAL destructor ─────────────────────────────────────────────
@@ -85,55 +97,77 @@ WAL::~WAL() {
 }
 
 // ── append ─────────────────────────────────────────────────────
-bool WAL::append(const std::string& key, const std::string& value) {
+bool WAL::append(std::string_view key, const VLogPointer& ptr) {
+    if (fd_ < 0) return false;
+
     uint32_t key_size   = static_cast<uint32_t>(key.size());
-    uint32_t value_size = static_cast<uint32_t>(value.size());
-    uint32_t checksum   = record_checksum(key_size, value_size, key, value);
+    uint32_t vlog_id    = ptr.file_id;
+    uint64_t vlog_offset= ptr.offset;
+    uint32_t vlog_len   = ptr.length;
+    uint32_t checksum   = record_checksum(key_size, vlog_id, vlog_offset, vlog_len, key);
 
-    // Serialize the full record into a single buffer to minimize syscalls.
-    const size_t record_len = sizeof(uint32_t) * 3 + key_size + value_size;
-    std::vector<uint8_t> record(record_len);
-    size_t off = 0;
-    std::memcpy(record.data() + off, &key_size,   sizeof(uint32_t)); off += sizeof(uint32_t);
-    std::memcpy(record.data() + off, &value_size, sizeof(uint32_t)); off += sizeof(uint32_t);
-    std::memcpy(record.data() + off, &checksum,   sizeof(uint32_t)); off += sizeof(uint32_t);
-    std::memcpy(record.data() + off, key.data(),   key_size);        off += key_size;
-    std::memcpy(record.data() + off, value.data(), value_size);
-
-    // Loop until the entire record is written (handles EINTR + short writes).
-    if (!write_all(fd_, record.data(), record_len)) {
-        std::cerr << "[WAL] ERROR: failed to write record\n";
-        return false;
+    const size_t record_len = sizeof(uint32_t) * 4 + sizeof(uint64_t) + key_size;
+    size_t off = buffer_.size();
+    buffer_.resize(off + record_len);
+    std::memcpy(buffer_.data() + off, &key_size,    sizeof(uint32_t)); off += sizeof(uint32_t);
+    std::memcpy(buffer_.data() + off, &vlog_id,     sizeof(uint32_t)); off += sizeof(uint32_t);
+    std::memcpy(buffer_.data() + off, &vlog_offset, sizeof(uint64_t)); off += sizeof(uint64_t);
+    std::memcpy(buffer_.data() + off, &vlog_len,    sizeof(uint32_t)); off += sizeof(uint32_t);
+    std::memcpy(buffer_.data() + off, &checksum,    sizeof(uint32_t)); off += sizeof(uint32_t);
+    if (key_size > 0) {
+        std::memcpy(buffer_.data() + off, key.data(), key_size);
     }
+    FaultInjection::check("crash_during_wal_append");
+    
+
+
     return true;
 }
 
 // ── append_delete ──────────────────────────────────────────────
-bool WAL::append_delete(const std::string& key) {
+bool WAL::append_delete(std::string_view key) {
+    if (fd_ < 0) return false;
+
     uint32_t key_size   = static_cast<uint32_t>(key.size());
-    uint32_t value_size = 0xFFFFFFFF; // Tombstone marker
-    uint32_t checksum   = record_checksum(key_size, value_size, key, "");
+    uint32_t vlog_id    = 0;
+    uint64_t vlog_offset= 0;
+    uint32_t vlog_len   = 0xFFFFFFFF; // Tombstone marker
+    uint32_t checksum   = record_checksum(key_size, vlog_id, vlog_offset, vlog_len, key);
 
-    const size_t record_len = sizeof(uint32_t) * 3 + key_size;
-    std::vector<uint8_t> record(record_len);
-    size_t off = 0;
-    std::memcpy(record.data() + off, &key_size,   sizeof(uint32_t)); off += sizeof(uint32_t);
-    std::memcpy(record.data() + off, &value_size, sizeof(uint32_t)); off += sizeof(uint32_t);
-    std::memcpy(record.data() + off, &checksum,   sizeof(uint32_t)); off += sizeof(uint32_t);
-    std::memcpy(record.data() + off, key.data(),   key_size);
+    const size_t record_len = sizeof(uint32_t) * 4 + sizeof(uint64_t) + key_size;
+    size_t off = buffer_.size();
+    buffer_.resize(off + record_len);
+    std::memcpy(buffer_.data() + off, &key_size,    sizeof(uint32_t)); off += sizeof(uint32_t);
+    std::memcpy(buffer_.data() + off, &vlog_id,     sizeof(uint32_t)); off += sizeof(uint32_t);
+    std::memcpy(buffer_.data() + off, &vlog_offset, sizeof(uint64_t)); off += sizeof(uint64_t);
+    std::memcpy(buffer_.data() + off, &vlog_len,    sizeof(uint32_t)); off += sizeof(uint32_t);
+    std::memcpy(buffer_.data() + off, &checksum,    sizeof(uint32_t)); off += sizeof(uint32_t);
+    std::memcpy(buffer_.data() + off, key.data(),   key_size);
+    
 
-    if (!write_all(fd_, record.data(), record_len)) {
-        std::cerr << "[WAL] ERROR: failed to write tombstone\n";
-        return false;
-    }
+
     return true;
 }
 
 // ── sync ───────────────────────────────────────────────────────
 bool WAL::sync() {
-    if (wal_fsync(fd_) != 0) {
-        std::cerr << "[WAL] ERROR: fsync failed (errno=" << errno << ")\n";
-        return false;
+    if (!buffer_.empty()) {
+
+
+        {
+
+            if (!write_all(fd_, buffer_.data(), buffer_.size())) return false;
+        }
+        buffer_.clear();
+    }
+    
+
+    {
+
+        if (wal_fsync(fd_) != 0) {
+            std::cerr << "[WAL] ERROR: fsync failed (errno=" << errno << ")\n";
+            return false;
+        }
     }
     return true;
 }
@@ -153,42 +187,36 @@ ReplayResult WAL::replay() const {
     bool hit_eof_cleanly = false;
 
     while (true) {
-        uint32_t key_size = 0, value_size = 0, stored_checksum = 0;
+        uint32_t key_size = 0, vlog_id = 0, vlog_len = 0, stored_checksum = 0;
+        uint64_t vlog_offset = 0;
 
-        // Read 12-byte header. A clean EOF here means we've consumed
-        // all records — NOT corruption.
+        // Read header
         if (!read_exact(rfd, &key_size, sizeof(uint32_t))) {
             hit_eof_cleanly = true;
             break;
         }
-        if (!read_exact(rfd, &value_size,      sizeof(uint32_t))) break;
+        if (!read_exact(rfd, &vlog_id,         sizeof(uint32_t))) break;
+        if (!read_exact(rfd, &vlog_offset,     sizeof(uint64_t))) break;
+        if (!read_exact(rfd, &vlog_len,        sizeof(uint32_t))) break;
         if (!read_exact(rfd, &stored_checksum, sizeof(uint32_t))) break;
+
+        // Size sanity check
+        if (key_size > MAX_FIELD_SIZE) break;
 
         // Read key.
         std::string key(key_size, '\0');
         if (key_size > 0 && !read_exact(rfd, key.data(), key_size)) break;
 
+        uint32_t expected = record_checksum(key_size, vlog_id, vlog_offset, vlog_len, key);
+        if (stored_checksum != expected) break;
+
         // Check if tombstone
-        if (value_size == 0xFFFFFFFF) {
-            uint32_t expected = record_checksum(key_size, value_size, key, "");
-            if (stored_checksum != expected) break;
-            result.entries.push_back({std::move(key), "", true});
+        if (vlog_len == 0xFFFFFFFF) {
+            result.entries.push_back({std::move(key), VLogPointer{0, 0, 0}, true});
             continue;
         }
 
-        // Size sanity check — corruption guard.
-        if (key_size > MAX_FIELD_SIZE || value_size > MAX_FIELD_SIZE) break;
-
-        // Read value.
-        std::string value(value_size, '\0');
-        if (value_size > 0 && !read_exact(rfd, value.data(), value_size)) break;
-
-        // Verify checksum.
-        uint32_t expected = record_checksum(key_size, value_size, key, value);
-        if (stored_checksum != expected) break;
-
-        result.entries.push_back({std::move(key), std::move(value), false});
-        continue;
+        result.entries.push_back({std::move(key), VLogPointer{vlog_id, vlog_offset, vlog_len}, false});
     }
 
     wal_close(rfd);
