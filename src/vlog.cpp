@@ -1,36 +1,63 @@
 #include "vlog.h"
+#include "io_util.h"
 
 #include <cerrno>
 #include <cstring>
 #include <iostream>
+#include <system_error>
+#include <filesystem>
 #include <vector>
+
 
 // ── Platform abstraction ───────────────────────────────────────
 #ifdef _WIN32
-  #include <io.h>
-  #include <fcntl.h>
-  #include <sys/stat.h>
-  #define vlog_open(p, f, m)    _open(p, f, m)
-  #define vlog_write(fd, b, n)  _write(fd, b, static_cast<unsigned int>(n))
-  #define vlog_read(fd, b, n)   _read(fd, b, static_cast<unsigned int>(n))
-  #define vlog_close(fd)        _close(fd)
-  #define vlog_fsync(fd)        _commit(fd)
-  #define vlog_lseek(fd, o, w)  _lseeki64(fd, o, w)
-  static constexpr int VLOG_APPEND_FLAGS = _O_WRONLY | _O_APPEND | _O_CREAT | _O_BINARY;
-  static constexpr int VLOG_READ_FLAGS   = _O_RDONLY | _O_BINARY;
-  static constexpr int VLOG_MODE         = _S_IREAD | _S_IWRITE;
+  #include <windows.h>
+  #define VLOG_FD_TYPE HANDLE
+  #define VLOG_INVALID_FD INVALID_HANDLE_VALUE
+  inline HANDLE vlog_open(const char* p, int f, int) {
+      DWORD access = 0;
+      if (f & 1) access |= GENERIC_WRITE;
+      if (f & 2) access |= GENERIC_READ;
+      DWORD creation = (f & 8) ? OPEN_ALWAYS : OPEN_EXISTING;
+      HANDLE h = CreateFileA(p, access, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, creation, FILE_ATTRIBUTE_NORMAL, NULL);
+      if (h != INVALID_HANDLE_VALUE && (f & 8)) {
+          SetFilePointer(h, 0, NULL, FILE_END);
+      }
+      return h;
+  }
+  inline int vlog_write(HANDLE fd, const void* b, size_t n) {
+      DWORD written;
+      return WriteFile(fd, b, static_cast<DWORD>(n), &written, NULL) ? written : -1;
+  }
+  inline int vlog_read(HANDLE fd, void* b, size_t n) {
+      DWORD read_bytes;
+      return ReadFile(fd, b, static_cast<DWORD>(n), &read_bytes, NULL) ? read_bytes : -1;
+  }
+  inline int vlog_close(HANDLE fd) { return CloseHandle(fd) ? 0 : -1; }
+  inline int vlog_fsync(HANDLE fd) { return FlushFileBuffers(fd) ? 0 : -1; }
+  inline int64_t vlog_lseek(HANDLE fd, int64_t o, int w) {
+      LARGE_INTEGER li;
+      li.QuadPart = o;
+      li.LowPart = SetFilePointer(fd, li.LowPart, &li.HighPart, w == 0 ? FILE_BEGIN : (w == 1 ? FILE_CURRENT : FILE_END));
+      return li.QuadPart;
+  }
+  static constexpr int VLOG_APPEND_FLAGS = 1 | 8;
+  static constexpr int VLOG_READ_FLAGS   = 2;
+  static constexpr int VLOG_MODE         = 0;
   #ifndef EINTR
     #define EINTR 0
   #endif
 #else
   #include <unistd.h>
   #include <fcntl.h>
+  #define VLOG_FD_TYPE int
+  #define VLOG_INVALID_FD -1
   #define vlog_open(p, f, m)    open(p, f, m)
-  #define vlog_write(fd, b, n)  write(fd, b, n)
-  #define vlog_read(fd, b, n)   read(fd, b, n)
-  #define vlog_close(fd)        close(fd)
-  #define vlog_fsync(fd)        fdatasync(fd)
-  #define vlog_lseek(fd, o, w)  lseek(fd, o, w)
+  #define vlog_write(fd, b, n)  write((int)(intptr_t)(fd), b, n)
+  #define vlog_read(fd, b, n)   read((int)(intptr_t)(fd), b, n)
+  #define vlog_close(fd)        close((int)(intptr_t)(fd))
+  #define vlog_fsync(fd)        fdatasync((int)(intptr_t)(fd))
+  #define vlog_lseek(fd, o, w)  lseek((int)(intptr_t)(fd), o, w)
   static constexpr int VLOG_APPEND_FLAGS = O_WRONLY | O_APPEND | O_CREAT;
   static constexpr int VLOG_READ_FLAGS   = O_RDONLY;
   static constexpr int VLOG_MODE         = 0644;
@@ -38,26 +65,14 @@
 
 // ── Helpers ────────────────────────────────────────────────────
 
-static bool vlog_write_all(int fd, const void* buf, size_t len) {
+static bool vlog_write_all(intptr_t fd, const void* buf, size_t len) {
     const uint8_t* p = static_cast<const uint8_t*>(buf);
     size_t rem = len;
     while (rem > 0) {
-        auto n = vlog_write(fd, p, rem);
+        auto n = vlog_write((VLOG_FD_TYPE)fd, p, rem);
         if (n < 0) { if (errno == EINTR) continue; return false; }
         if (n == 0) return false;
-        p   += n;
-        rem -= static_cast<size_t>(n);
-    }
-    return true;
-}
-
-static bool vlog_read_exact(int fd, void* buf, size_t len) {
-    uint8_t* p = static_cast<uint8_t*>(buf);
-    size_t rem = len;
-    while (rem > 0) {
-        auto n = vlog_read(fd, p, rem);
-        if (n < 0) { if (errno == EINTR) continue; return false; }
-        if (n == 0) return false;
+        
         p   += n;
         rem -= static_cast<size_t>(n);
     }
@@ -66,82 +81,138 @@ static bool vlog_read_exact(int fd, void* buf, size_t len) {
 
 // ── VLog implementation ────────────────────────────────────────
 
-VLog::VLog(const std::string& path)
-    : path_(path), write_fd_(-1), read_fd_(-1), current_offset_(0) {
-    write_fd_ = vlog_open(path_.c_str(), VLOG_APPEND_FLAGS, VLOG_MODE);
-    if (write_fd_ < 0) {
-        std::cerr << "[VLog] FATAL: cannot open write fd: " << path_ << "\n";
+size_t VLog::MAX_FILE_SIZE = 4 * 1024 * 1024; // 4 MB default
+
+VLog::VLog(const std::string& path, uint32_t file_id)
+    : path_(path), write_fd_((intptr_t)VLOG_INVALID_FD), read_fd_((intptr_t)VLOG_INVALID_FD), file_id_(file_id), current_offset_(0) {
+    write_fd_ = (intptr_t)vlog_open(path_.c_str(), VLOG_APPEND_FLAGS, VLOG_MODE);
+    if ((VLOG_FD_TYPE)write_fd_ == VLOG_INVALID_FD) {
+        std::cerr << "[VLog] FATAL: cannot open write fd: " << path_ << " error: " << GetLastError() << "\n";
         std::exit(1);
     }
 
-    read_fd_ = vlog_open(path_.c_str(), VLOG_READ_FLAGS, 0);
-    if (read_fd_ < 0) {
-        std::cerr << "[VLog] FATAL: cannot open read fd: " << path_ << "\n";
+    read_fd_ = (intptr_t)vlog_open(path_.c_str(), VLOG_READ_FLAGS, 0);
+    if ((VLOG_FD_TYPE)read_fd_ == VLOG_INVALID_FD) {
+        std::cerr << "[VLog] FATAL: cannot open read fd: " << path_ << " error: " << GetLastError() << "\n";
         std::exit(1);
     }
 
     // Initialize current_offset_ from file size (one-time lseek, NOT used per-append).
-    auto size = vlog_lseek(write_fd_, 0, SEEK_END);
+    auto size = vlog_lseek((VLOG_FD_TYPE)write_fd_, 0, SEEK_END);
     current_offset_ = (size > 0) ? static_cast<uint64_t>(size) : 0;
+    buffer_.reserve(8 * 1024 * 1024); // Preallocate 8MB
 }
 
 VLog::~VLog() {
-    if (write_fd_ >= 0) vlog_close(write_fd_);
-    if (read_fd_  >= 0) vlog_close(read_fd_);
+    if ((VLOG_FD_TYPE)write_fd_ != VLOG_INVALID_FD) {
+        sync();
+        vlog_close((VLOG_FD_TYPE)write_fd_);
+    }
+    if ((VLOG_FD_TYPE)read_fd_  != VLOG_INVALID_FD) vlog_close((VLOG_FD_TYPE)read_fd_);
+    write_fd_ = (intptr_t)VLOG_INVALID_FD;
+    read_fd_ = (intptr_t)VLOG_INVALID_FD;
+    
+    if (marked_for_deletion_) {
+        std::error_code ec;
+        std::filesystem::remove(path_, ec);
+        std::filesystem::remove(path_ + ".dead", ec);
+    }
 }
 
-bool VLog::append(const std::string& value, VLogPointer& out_pointer) {
+bool VLog::append(std::string_view key, std::string_view value, VLogPointer& out_pointer) {
+    uint32_t key_size = static_cast<uint32_t>(key.size());
     uint32_t value_size = static_cast<uint32_t>(value.size());
 
-    // Serialize: [value_size][value_bytes]
-    std::vector<uint8_t> record(sizeof(uint32_t) + value_size);
-    std::memcpy(record.data(), &value_size, sizeof(uint32_t));
-    if (value_size > 0)
-        std::memcpy(record.data() + sizeof(uint32_t), value.data(), value_size);
+    // Serialize: [key_size][value_size][key_bytes][value_bytes]
+    uint32_t header_size = sizeof(uint32_t) * 2;
+    size_t record_len = header_size + key_size + value_size;
 
-    // Capture offset BEFORE write.
-    uint64_t write_offset = current_offset_;
+    uint64_t write_offset = current_offset_ + buffer_.size();
 
-    if (!vlog_write_all(write_fd_, record.data(), record.size())) {
-        std::cerr << "[VLog] ERROR: write failed\n";
-        return false;   // current_offset_ NOT advanced
+    size_t off = buffer_.size();
+    buffer_.resize(off + record_len);
+    std::memcpy(buffer_.data() + off, &key_size, sizeof(uint32_t)); off += sizeof(uint32_t);
+    std::memcpy(buffer_.data() + off, &value_size, sizeof(uint32_t)); off += sizeof(uint32_t);
+    if (key_size > 0) {
+        std::memcpy(buffer_.data() + off, key.data(), key_size);
+        off += key_size;
+    }
+    if (value_size > 0) {
+        std::memcpy(buffer_.data() + off, value.data(), value_size);
     }
 
-    // Advance offset AFTER successful write.
-    current_offset_ += record.size();
-
-    out_pointer.file_id = 0;
-    out_pointer.offset  = write_offset;
+    out_pointer.file_id = file_id_;
+    out_pointer.offset  = write_offset + header_size + key_size;
     out_pointer.length  = value_size;
+    
+
+
+    
     return true;
 }
 
 bool VLog::sync() {
-    if (vlog_fsync(write_fd_) != 0) {
-        std::cerr << "[VLog] ERROR: fsync failed (errno=" << errno << ")\n";
-        return false;
+    if (!buffer_.empty()) {
+
+
+        
+        {
+
+            if (!vlog_write_all(write_fd_, buffer_.data(), buffer_.size())) return false;
+        }
+        current_offset_ += buffer_.size();
+        buffer_.clear();
+    }
+    
+
+    
+    {
+
+        if (vlog_fsync((VLOG_FD_TYPE)write_fd_) != 0) {
+            std::cerr << "[VLog] ERROR: fsync failed (errno=" << errno << ")\n";
+            return false;
+        }
     }
     return true;
 }
 
 // Read value at pointer.
-// Safety: lseek + read on read_fd_ is NOT thread-safe. This is correct for
-// Phase 2 (single-threaded). Phase 3+ with concurrent reads MUST use pread()
-// on POSIX or per-call file descriptors on Windows to avoid fd position races.
+// Safely implemented using concurrent lock-free reads.
 bool VLog::read_at(const VLogPointer& pointer, std::string& out_value) const {
-    // Seek to offset on read fd.
-    auto pos = vlog_lseek(read_fd_, static_cast<long long>(pointer.offset), SEEK_SET);
-    if (pos < 0) return false;
-
-    // Read and validate value_size header.
-    uint32_t stored_size = 0;
-    if (!vlog_read_exact(read_fd_, &stored_size, sizeof(uint32_t))) return false;
-    if (stored_size != pointer.length) return false;   // consistency check
-
-    // Read value bytes.
+    if (read_fd_ < 0) return false;
+    
+    // Read value bytes directly from pointer.offset
     out_value.resize(pointer.length);
-    if (pointer.length > 0 && !vlog_read_exact(read_fd_, out_value.data(), pointer.length))
+    if (pointer.length > 0 && !acdb::platform_pread(read_fd_, out_value.data(), pointer.length, pointer.offset))
         return false;
 
+    return true;
+}
+
+bool VLog::read_next(uint64_t& current_offset, VLogRecord& out_record) const {
+    uint32_t headers[2] = {0, 0};
+    if (!acdb::platform_pread(read_fd_, headers, sizeof(headers), current_offset)) {
+        return false; // EOF or error
+    }
+    
+    uint32_t key_size = headers[0];
+    uint32_t value_size = headers[1];
+    
+    out_record.key.resize(key_size);
+    out_record.value.resize(value_size);
+    
+    if (key_size > 0 && !acdb::platform_pread(read_fd_, out_record.key.data(), key_size, current_offset + sizeof(uint32_t) * 2)) {
+        return false;
+    }
+    
+    if (value_size > 0 && !acdb::platform_pread(read_fd_, out_record.value.data(), value_size, current_offset + sizeof(uint32_t) * 2 + key_size)) {
+        return false;
+    }
+    
+    out_record.pointer.file_id = file_id_;
+    out_record.pointer.offset = current_offset + sizeof(uint32_t) * 2 + key_size;
+    out_record.pointer.length = value_size;
+    
+    current_offset += sizeof(uint32_t) * 2 + key_size + value_size;
     return true;
 }
