@@ -1,5 +1,10 @@
 #include "compaction.h"
+#include "fault_injection.h"
 #include "kvstore.h"
+#include "sstable.h"
+#include "sstable_iterator.h"
+#include "version_edit.h"
+#include "version_set.h"
 
 #include <filesystem>
 #include <iostream>
@@ -7,149 +12,163 @@
 #include <set>
 #include <stdexcept>
 #include <vector>
+#include <queue>
+#include <memory>
+#include <chrono>
 
 void run_compaction(KVStore* store) {
-    auto& manifest = store->manifest_;
-    if (manifest.l0_seqs.empty()) return;
+    auto start_time = std::chrono::high_resolution_clock::now();
+    auto current_v = store->versions_->current();
+    if (current_v->files_[0].empty()) return;
 
     // 1. Snapshot inputs.
-    std::vector<uint32_t> l0_inputs = manifest.l0_seqs;
+    std::vector<acdb::FileMetaData> l0_inputs = current_v->files_[0];
     std::string global_min = "\xFF", global_max = "";
 
-    auto get_l0_reader = [&](uint32_t seq) -> const SSTableReader* {
-        for (const auto& r : store->l0_sstables_) {
-            if (r.sequence() == seq) return &r;
-        }
-        return nullptr;
+    auto get_sstable_reader = [&](uint32_t seq) -> std::shared_ptr<SSTableReader> {
+        return store->get_sstable_reader(seq);
     };
 
-    for (uint32_t seq : l0_inputs) {
-        auto r = get_l0_reader(seq);
-        if (!r) continue;
-        if (r->min_key() < global_min) global_min = r->min_key();
-        if (r->max_key() > global_max) global_max = r->max_key();
+    for (const auto& meta : l0_inputs) {
+        if (meta.min_key < global_min) global_min = meta.min_key;
+        if (meta.max_key > global_max) global_max = meta.max_key;
     }
 
     // 2. Find overlapping L1 files.
-    std::vector<uint32_t> l1_inputs;
-    std::vector<uint32_t> l1_retained;
+    std::vector<acdb::FileMetaData> l1_inputs;
 
-    auto get_l1_reader = [&](uint32_t seq) -> const SSTableReader* {
-        for (const auto& r : store->l1_sstables_) {
-            if (r.sequence() == seq) return &r;
+    for (const auto& meta : current_v->files_[1]) {
+        auto r = get_sstable_reader(meta.sequence);
+        if (!r) continue;
+        if (r->overlaps(global_min, global_max)) {
+            l1_inputs.push_back(meta);
         }
-        return nullptr;
+    }
+
+    // 3. (Removed) We no longer collect keys from input L1 files.
+    // L1 is the terminal level in AccretionDB's 2-level LSM, so we
+    // unconditionally emit tombstones during L0->L1 compactions, avoiding O(N) memory.
+
+    // 4. Constant-Memory Streaming K-Way Merge
+    struct IteratorWrapper {
+        SSTableReader* reader;
+        SSTableIterator* iter;
+        int level;
+        uint32_t seq;
     };
 
-    for (uint32_t seq : manifest.l1_seqs) {
-        auto r = get_l1_reader(seq);
+    struct CompareIter {
+        bool operator()(const IteratorWrapper& a, const IteratorWrapper& b) const {
+            std::string_view k1 = a.iter->key();
+            std::string_view k2 = b.iter->key();
+            if (k1 != k2) return k1 > k2;
+            if (a.level != b.level) return a.level > b.level;
+            return a.seq < b.seq;
+        }
+    };
+
+    std::vector<std::unique_ptr<SSTableIterator>> all_iters;
+    std::priority_queue<IteratorWrapper, std::vector<IteratorWrapper>, CompareIter> pq;
+    std::vector<std::shared_ptr<SSTableReader>> active_readers;
+
+    for (const auto& meta : l1_inputs) {
+        auto r = get_sstable_reader(meta.sequence);
         if (!r) continue;
-        // Overlap detection via key range intersection.
-        if (r->overlaps(global_min, global_max)) {
-            l1_inputs.push_back(seq);
-        } else {
-            l1_retained.push_back(seq);
+        auto iter = std::make_unique<SSTableIterator>(r.get(), &store->block_cache_);
+        if (iter->valid()) {
+            pq.push({r.get(), iter.get(), 1, meta.sequence});
+            all_iters.push_back(std::move(iter));
+            active_readers.push_back(std::move(r));
         }
     }
 
-    // 3. Collect keys from input L1 files (for safe tombstone eviction).
-    std::set<std::string> l1_keys;
-    for (uint32_t seq : l1_inputs) {
-        auto r = get_l1_reader(seq);
-        for (const auto& e : r->entries()) {
-            l1_keys.insert(e.key);
-        }
-    }
-
-    // 4. K-Way merge (Duplicate Resolution: newest version wins).
-    // COMPACTION ORDERING (STRICT PRIORITY):
-    // std::map::insert ignores duplicates. By inserting sources in strictly newest-to-oldest order
-    // (Newest L0 -> Oldest L0 -> L1), we naturally guarantee that only the newest sequence 
-    // of any given key is retained. Older overlapping sequences are explicitly discarded.
-    std::map<std::string, VLogPointer> merged;
-
-    // Precedence 1: Newest L0 to Oldest L0.
-    // L0 files are appended normally, so reverse order = newest first.
-    for (auto it = l0_inputs.rbegin(); it != l0_inputs.rend(); ++it) {
-        auto r = get_l0_reader(*it);
+    for (const auto& meta : l0_inputs) {
+        auto r = get_sstable_reader(meta.sequence);
         if (!r) continue;
-        for (const auto& e : r->entries()) {
-            merged.insert({e.key, e.pointer}); // insert only succeeds if key not already present
+        auto iter = std::make_unique<SSTableIterator>(r.get(), &store->block_cache_);
+        if (iter->valid()) {
+            pq.push({r.get(), iter.get(), 0, meta.sequence});
+            all_iters.push_back(std::move(iter));
+            active_readers.push_back(std::move(r));
         }
     }
 
-    // Precedence 2: L1 inputs.
-    for (uint32_t seq : l1_inputs) {
-        auto r = get_l1_reader(seq);
-        if (!r) continue;
-        for (const auto& e : r->entries()) {
-            merged.insert({e.key, e.pointer});
-        }
-    }
+    // 5. Write new L1 SSTables streamingly
+    acdb::VersionEdit edit;
+    
+    for (const auto& meta : l0_inputs) edit.delete_file(0, meta.sequence);
+    for (const auto& meta : l1_inputs) edit.delete_file(1, meta.sequence);
 
-    // 5. Filter tombstones according to safety rules.
-    for (auto it = merged.begin(); it != merged.end(); ) {
-        if (is_tombstone(it->second)) {
-            // ONLY drop tombstone if key does NOT exist in input L1 files.
-            if (l1_keys.find(it->first) == l1_keys.end()) {
-                it = merged.erase(it);
-                continue;
-            }
-        }
-        ++it;
-    }
-
-    // 6. Write new L1 SSTables (chunked by threshold).
-    std::vector<uint32_t> new_l1_seqs;
-    std::map<std::string, VLogPointer> chunk;
+    std::vector<SSTableEntry> chunk;
     size_t chunk_size = 0;
 
     auto flush_chunk = [&]() {
         if (chunk.empty()) return;
-        uint32_t seq = store->next_sst_sequence();
+        uint32_t seq = store->versions_->new_file_number();
         std::string path = store->sst_path(seq);
         if (!SSTableWriter::write(path, chunk)) {
+            store->versions_->remove_pending_output(seq);
             throw std::runtime_error("[Compaction] Failed to write new L1 SSTable");
         }
-        store->add_storage_bytes(24); // Footer approx byte cost for the new L1 chunk
-        new_l1_seqs.push_back(seq);
+        store->add_storage_bytes(24);
         
-        // Emulate KVStore next_sst_sequence advancement for multi-chunk
-        // Since next_sst_sequence derives from filesystem, the creation of the file
-        // on disk automatically updates the sequence logically! 
-        // But to be absolutely safe, let's keep chunking logic independent.
-
+        SSTableReader temp_reader;
+        temp_reader.load(path);
+        
+        size_t est_size = chunk_size + 24; 
+        edit.add_file(1, seq, est_size, temp_reader.min_key(), temp_reader.max_key());
+        
         chunk.clear();
         chunk_size = 0;
     };
 
-    for (const auto& [k, v] : merged) {
-        chunk[k] = v;
-        chunk_size += k.size() + 20; // key + VLogPointer
-        store->add_storage_bytes(k.size() + 20); // Metric tracking
+    std::string last_key = "";
+    bool first_key = true;
+
+    while (!pq.empty()) {
+        auto top = pq.top();
+        pq.pop();
+
+        std::string current_key(top.iter->key());
+        VLogPointer current_val = top.iter->value();
+
+        top.iter->next();
+        if (top.iter->valid()) {
+            pq.push(top);
+        }
+
+        if (!first_key && current_key == last_key) continue;
+        last_key = current_key;
+        first_key = false;
+
+        // Since L1 is the terminal level and this compaction includes ALL overlapping L1 files,
+        // any tombstone from L0 has now overshadowed and deleted any potential older value in L1.
+        // We can safely discard the tombstone entirely to prevent infinite accumulation.
+        if (is_tombstone(current_val)) continue;
+
+        chunk.push_back({current_key, current_val});
+        chunk_size += current_key.size() + 20;
+        store->add_storage_bytes(current_key.size() + 20);
         if (chunk_size >= KVStore::FLUSH_THRESHOLD) flush_chunk();
     }
     flush_chunk();
 
-    // 7. Atomic Manifest Update (Visibility strictly tied to commit).
-    manifest.version++;
-    manifest.l0_seqs.clear(); // all L0 compacted
-    manifest.l1_seqs = l1_retained;
-    manifest.l1_seqs.insert(manifest.l1_seqs.end(), new_l1_seqs.begin(), new_l1_seqs.end());
+    // Clear structures holding active readers to release file handles before deletion
+    while (!pq.empty()) pq.pop();
+    all_iters.clear();
+    active_readers.clear();
 
-    if (!manifest.commit(store->manifest_path())) {
-        throw std::runtime_error("[Compaction] Manifest atomic rename failed");
+    // 7. Concurrency safe state swap
+    FaultInjection::check("crash_during_compaction");
+    if (!store->versions_->log_and_apply(&edit)) {
+        throw std::runtime_error("[Compaction] VersionSet commit failed");
     }
+    
+    // 8. Safely delete old compacted files from disk using strict MVCC.
+    store->versions_->purge_obsolete_files(store->data_dir());
 
-    std::cout << "[Compaction] Merged " << l0_inputs.size() << " L0 and " 
-              << l1_inputs.size() << " L1 files into " 
-              << new_l1_seqs.size() << " new L1 files.\n";
-
-    // 8. Safely delete old compacted files from disk.
-    std::error_code ec;
-    for (uint32_t seq : l0_inputs) std::filesystem::remove(store->sst_path(seq), ec);
-    for (uint32_t seq : l1_inputs) std::filesystem::remove(store->sst_path(seq), ec);
-
-    // 9. Reload state so read path sees the new manifest state correctly.
-    store->load_sstables();
+    auto end_time = std::chrono::high_resolution_clock::now();
+    uint64_t duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    store->metrics().compaction_duration_ms.fetch_add(duration, std::memory_order_relaxed);
+    store->metrics().compaction_count.fetch_add(1, std::memory_order_relaxed);
 }
