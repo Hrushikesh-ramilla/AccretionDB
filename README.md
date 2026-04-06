@@ -189,6 +189,11 @@ AccretionDB survived a rigorous "Hostile Audit" designed to stress-test its conc
 
 AccretionDB ships with a built-in RESP server, allowing it to act as a drop-in high-performance Redis replacement.
 
+## HTTP Observability Dashboard
+
+AccretionDB provides a single, zero-dependency HTTP observability endpoint on port `8080`.
+Navigating to `http://localhost:8080` opens a fully self-contained terminal-styled dashboard that polls `/state` to visualize the LSM tree levels, Memtable capacity, and live latency metrics.
+
 ### Running the Server
 
 ```bash
@@ -201,7 +206,7 @@ make                  # Linux / macOS
 ./acdb.exe redis      # Windows
 ./acdb redis          # Linux / macOS
 
-# Connect with any Redis client: redis-cli -p 8080
+# Connect with any Redis client: redis-cli -p 6379
 ```
 
 ---
