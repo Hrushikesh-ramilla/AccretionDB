@@ -58,7 +58,7 @@ export default function App() {
       try {
         let currentData: LsmState = {};
         try {
-          const response = await fetch('http://127.0.0.1:8080/state');
+          const response = await fetch('https://accretiondb.onrender.com/state');
           if (response.ok) {
             currentData = await response.json();
             setError(null);

@@ -87,13 +87,13 @@ VLog::VLog(const std::string& path, uint32_t file_id)
     : path_(path), write_fd_((intptr_t)VLOG_INVALID_FD), read_fd_((intptr_t)VLOG_INVALID_FD), file_id_(file_id), current_offset_(0) {
     write_fd_ = (intptr_t)vlog_open(path_.c_str(), VLOG_APPEND_FLAGS, VLOG_MODE);
     if ((VLOG_FD_TYPE)write_fd_ == VLOG_INVALID_FD) {
-        std::cerr << "[VLog] FATAL: cannot open write fd: " << path_ << " error: " << GetLastError() << "\n";
+        std::cerr << "[VLog] FATAL: cannot open write fd: " << path_ << " error: " << errno << " (" << std::strerror(errno) << ")\n";
         std::exit(1);
     }
 
     read_fd_ = (intptr_t)vlog_open(path_.c_str(), VLOG_READ_FLAGS, 0);
     if ((VLOG_FD_TYPE)read_fd_ == VLOG_INVALID_FD) {
-        std::cerr << "[VLog] FATAL: cannot open read fd: " << path_ << " error: " << GetLastError() << "\n";
+        std::cerr << "[VLog] FATAL: cannot open read fd: " << path_ << " error: " << errno << " (" << std::strerror(errno) << ")\n";
         std::exit(1);
     }
 

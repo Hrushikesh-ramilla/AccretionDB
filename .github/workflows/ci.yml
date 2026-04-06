@@ -7,7 +7,7 @@ on:
     branches: [ main, master ]
 
 jobs:
-  # ── Job 1: Build & Test (Linux) ────────────────────────────────
+  # -- Job 1: Build & Test (Linux) --------------------------------
   build-and-test:
     name: Build & Run 26-Test Suite
     runs-on: ubuntu-latest
@@ -29,16 +29,18 @@ jobs:
         run: |
           g++ -std=c++20 -O2 -Wall -Wextra -Iinclude \
               src/crc32.cpp src/wal.cpp src/vlog.cpp src/sstable.cpp \
-              src/memtable.cpp src/manifest.cpp src/compaction.cpp \
+              src/arena.cpp src/skiplist.cpp src/memtable.cpp \
+              src/version_edit.cpp src/version_set.cpp src/compaction.cpp \
               src/vlog_gc.cpp src/bloom.cpp src/benchmark.cpp \
-              src/cli.cpp src/kvstore.cpp src/http_server.cpp main.cpp \
-              -o acdb
+              src/kvstore.cpp src/thread_pool.cpp src/resp_server.cpp \
+              src/fault_injection.cpp main.cpp \
+              -pthread -o acdb
 
-      - name: Run test suite (26 tests)
+      - name: Run test suite (25 tests)
         run: ./acdb
         timeout-minutes: 5
 
-  # ── Job 2: Docker build verification ──────────────────────────
+  # -- Job 2: Docker build verification --------------------------
   docker-build:
     name: Docker Image Build
     runs-on: ubuntu-latest
@@ -60,7 +62,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Smoke test — dashboard responds
+      - name: Smoke test � dashboard responds
         run: |
           docker run -d --name accretiondb-smoke -p 8080:8080 accretiondb:ci
           sleep 3
@@ -73,7 +75,7 @@ jobs:
           "
           docker stop accretiondb-smoke
 
-  # ── Job 3: Deploy to Railway (on push to main only) ────────────
+  # -- Job 3: Deploy to Railway (on push to main only) ------------
   deploy:
     name: Deploy to Railway
     runs-on: ubuntu-latest
@@ -91,3 +93,4 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: railway up --service AccretionDB --detach
+

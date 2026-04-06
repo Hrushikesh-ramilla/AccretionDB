@@ -4,19 +4,15 @@
 #include <vector>
 #include <thread>
 #include <sstream>
-#include <winsock2.h>
-#include <ws2tcpip.h>
+#include "socket_compat.h"
 #include <algorithm>
 
-#pragma comment(lib, "ws2_32.lib")
-
 RespServer::RespServer(KVStore& store, int port) : store_(store), port_(port) {
-    WSADATA wsaData;
-    WSAStartup(MAKEWORD(2, 2), &wsaData);
+    net_init();
 }
 
 RespServer::~RespServer() {
-    WSACleanup();
+    net_cleanup();
 }
 
 // Helper to find \r\n

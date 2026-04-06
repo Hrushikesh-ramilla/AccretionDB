@@ -6,12 +6,9 @@
 #include <string>
 #include <iostream>
 #include <chrono>
+#include <cstdlib>
 
-#ifdef _WIN32
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#pragma comment(lib, "ws2_32.lib")
-#endif
+#include "socket_compat.h"
 
 inline KVStore* g_http_kvstore = nullptr;
 
@@ -40,12 +37,10 @@ inline int extract_json_int(const std::string& json, const std::string& key) {
 }
 
 inline void http_server_loop() {
-#ifdef _WIN32
-    WSADATA wsaData;
-    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) return;
+    net_init();
 
     SOCKET server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd == INVALID_SOCKET) { WSACleanup(); return; }
+    if (server_fd == INVALID_SOCKET) { net_cleanup(); return; }
 
     int opt = 1;
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
@@ -61,13 +56,13 @@ inline void http_server_loop() {
 
     if (bind(server_fd, (struct sockaddr*)&address, sizeof(address)) == SOCKET_ERROR) {
         closesocket(server_fd);
-        WSACleanup();
+        net_cleanup();
         return;
     }
 
     if (listen(server_fd, 5) == SOCKET_ERROR) {
         closesocket(server_fd);
-        WSACleanup();
+        net_cleanup();
         return;
     }
     
@@ -226,7 +221,7 @@ inline void http_server_loop() {
         }
         closesocket(client_socket);
     }
-#endif
+    net_cleanup();
 }
 
 inline void start_http_server() {
