@@ -1,5 +1,5 @@
 CXX      = g++
-CXXFLAGS = -std=c++20 -Wall -Wextra -O3 -DNDEBUG -mcx16 -Iinclude
+CXXFLAGS = -std=c++20 -Wall -Wextra -O3 -DNDEBUG -mcx16 -Iinclude -pthread
 SRCS     = src/crc32.cpp src/wal.cpp src/vlog.cpp src/sstable.cpp src/arena.cpp src/skiplist.cpp src/memtable.cpp src/version_edit.cpp src/version_set.cpp src/compaction.cpp src/vlog_gc.cpp src/bloom.cpp src/benchmark.cpp src/kvstore.cpp src/thread_pool.cpp src/resp_server.cpp src/fault_injection.cpp main.cpp
 OBJS     = $(SRCS:.cpp=.o)
 TARGET   = acdb
@@ -8,11 +8,11 @@ ifeq ($(OS),Windows_NT)
 	TARGET  := $(TARGET).exe
 	RM       = del /Q
 	RMDIR    = rmdir /S /Q
-	LDFLAGS  = -lws2_32 -latomic
+	LDFLAGS  = -lws2_32 -latomic -pthread
 else
 	RM       = rm -f
 	RMDIR    = rm -rf
-	LDFLAGS  = -latomic
+	LDFLAGS  = -static-libstdc++ -static-libgcc -latomic -pthread
 endif
 
 all: $(TARGET)
