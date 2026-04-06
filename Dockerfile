@@ -9,21 +9,27 @@ WORKDIR /build
 COPY . .
 
 # Compile the binary. Linux uses standard POSIX sockets; no -lws2_32 needed.
+# We compile directly or via Makefile.
 RUN g++ -std=c++20 -O2 -Wall -Wextra -Iinclude \
         src/crc32.cpp \
         src/wal.cpp \
         src/vlog.cpp \
         src/sstable.cpp \
+        src/arena.cpp \
+        src/skiplist.cpp \
         src/memtable.cpp \
-        src/manifest.cpp \
+        src/version_edit.cpp \
+        src/version_set.cpp \
         src/compaction.cpp \
         src/vlog_gc.cpp \
         src/bloom.cpp \
         src/benchmark.cpp \
-        src/cli.cpp \
         src/kvstore.cpp \
-        src/http_server.cpp \
+        src/thread_pool.cpp \
+        src/resp_server.cpp \
+        src/fault_injection.cpp \
         main.cpp \
+        -pthread \
         -static-libstdc++ -static-libgcc \
         -o acdb
 
@@ -41,15 +47,16 @@ WORKDIR /app
 # Copy the compiled binary
 COPY --from=builder /build/acdb ./acdb
 
-# Copy the web dashboard assets
-COPY --from=builder /build/web ./web
+# Copy the terminal dashboard assets
+COPY --from=builder /build/dashboard/public ./dashboard/public
 
-# Expose the dashboard port
+# Expose the dashboard port (Azure overrides this via PORT env var)
 EXPOSE 8080
+EXPOSE 6379
 
-# Health check — poll /api/metrics every 30 seconds
+# Health check — poll /state every 30 seconds
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD wget -qO- http://localhost:${PORT:-8080}/api/metrics || exit 1
+    CMD wget -qO- http://localhost:${PORT:-8080}/state || exit 1
 
-# Default: start the HTTP server in web mode
+# Default: start the HTTP server in web mode for the dashboard
 CMD ["./acdb", "web"]
