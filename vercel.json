@@ -3,6 +3,10 @@
     {
       "source": "/api/:match*",
       "destination": "https://accretiondb.onrender.com/api/:match*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/web/$1"
     }
   ]
 }
