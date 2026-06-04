@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:match*",
-      "destination": "https://YOUR-RENDER-APP-NAME.onrender.com/api/:match*"
+      "destination": "https://accretiondb.onrender.com/api/:match*"
     }
   ]
 }
