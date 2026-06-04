@@ -49,7 +49,7 @@ EXPOSE 8080
 
 # Health check — poll /api/metrics every 30 seconds
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD wget -qO- http://localhost:8080/api/metrics || exit 1
+    CMD wget -qO- http://localhost:${PORT:-8080}/api/metrics || exit 1
 
 # Default: start the HTTP server in web mode
 CMD ["./acdb", "web"]
